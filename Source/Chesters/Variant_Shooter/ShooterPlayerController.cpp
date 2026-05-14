@@ -9,12 +9,20 @@
 #include "GameFramework/PlayerStart.h"
 #include "ShooterCharacter.h"
 #include "ShooterBulletCounterUI.h"
+#include "ShooterWeapon.h"
 #include "Chesters.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "Net/UnrealNetwork.h"
 
 void AShooterPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (HasAuthority())
+	{
+		CurrentMoney = StartingMoney;
+		HandleMoneyChanged();
+	}
 
 	// only spawn touch controls on local player controllers
 	if (IsLocalPlayerController())
@@ -49,6 +57,7 @@ void AShooterPlayerController::BeginPlay()
 
 		}
 		
+		HandleMoneyChanged();
 	}
 }
 
@@ -109,6 +118,11 @@ void AShooterPlayerController::OnPawnDestroyed(AActor* DestroyedActor)
 		BulletCounterUI->BP_UpdateBulletCounter(0, 0);
 	}
 
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// find the player start
 	TArray<AActor*> ActorList;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), APlayerStart::StaticClass(), ActorList);
@@ -146,8 +160,65 @@ void AShooterPlayerController::OnPawnDamaged(float LifePercent)
 	}
 }
 
+void AShooterPlayerController::OnRep_CurrentMoney()
+{
+	HandleMoneyChanged();
+}
+
+void AShooterPlayerController::HandleMoneyChanged()
+{
+	if (IsLocalPlayerController())
+	{
+		BP_OnMoneyChanged(CurrentMoney);
+	}
+}
+
 bool AShooterPlayerController::ShouldUseTouchControls() const
 {
 	// are we on a mobile platform? Should we force touch?
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
+}
+
+void AShooterPlayerController::BuyWeapon(int32 OptionIndex)
+{
+	if (HasAuthority())
+	{
+		ServerBuyWeapon_Implementation(OptionIndex);
+	}
+	else
+	{
+		ServerBuyWeapon(OptionIndex);
+	}
+}
+
+void AShooterPlayerController::ServerBuyWeapon_Implementation(int32 OptionIndex)
+{
+	if (!BuyMenuOptions.IsValidIndex(OptionIndex))
+	{
+		return;
+	}
+
+	const FShooterWeaponPurchaseOption& PurchaseOption = BuyMenuOptions[OptionIndex];
+	if (!PurchaseOption.WeaponClass || CurrentMoney < PurchaseOption.Price)
+	{
+		return;
+	}
+
+	AShooterCharacter* ShooterCharacter = Cast<AShooterCharacter>(GetPawn());
+	if (!ShooterCharacter || ShooterCharacter->OwnsWeaponOfType(PurchaseOption.WeaponClass))
+	{
+		return;
+	}
+
+	CurrentMoney -= PurchaseOption.Price;
+	HandleMoneyChanged();
+
+	ShooterCharacter->AddWeaponClass(PurchaseOption.WeaponClass);
+}
+
+void AShooterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AShooterPlayerController, CurrentMoney);
 }

@@ -11,6 +11,7 @@ class AShooterWeapon;
 class UInputAction;
 class UInputComponent;
 class UPawnNoiseEmitterComponent;
+class FLifetimeProperty;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
@@ -67,10 +68,16 @@ protected:
 	FName DeathTag = FName("Dead");
 
 	/** List of weapons picked up by the character */
-	TArray<AShooterWeapon*> OwnedWeapons;
+	UPROPERTY(ReplicatedUsing=OnRep_OwnedWeapons)
+	TArray<TObjectPtr<AShooterWeapon>> OwnedWeapons;
 
 	/** Weapon currently equipped and ready to shoot with */
+	UPROPERTY(ReplicatedUsing=OnRep_CurrentWeapon)
 	TObjectPtr<AShooterWeapon> CurrentWeapon;
+
+	/** Optional weapon automatically granted when this character spawns */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapons", meta=(AllowPrivateAccess="true"))
+	TSubclassOf<AShooterWeapon> StartingWeaponClass;
 
 	UPROPERTY(EditAnywhere, Category ="Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float RespawnTime = 5.0f;
@@ -97,6 +104,9 @@ protected:
 
 	/** Gameplay cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+
+	/** Replication setup */
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Set up input action bindings */
 	virtual void SetupPlayerInputComponent(UInputComponent* InputComponent) override;
@@ -167,6 +177,29 @@ public:
 
 protected:
 
+	/** Called when the current weapon changes on clients */
+	UFUNCTION()
+	void OnRep_CurrentWeapon();
+
+	/** Called when the owned weapon list changes on clients */
+	UFUNCTION()
+	void OnRep_OwnedWeapons();
+
+	/** Attaches owned weapons and shows only the currently equipped one */
+	void RefreshWeaponAttachments();
+
+	/** Server-authoritative start firing request */
+	UFUNCTION(Server, Reliable)
+	void ServerStartFiring();
+
+	/** Server-authoritative stop firing request */
+	UFUNCTION(Server, Reliable)
+	void ServerStopFiring();
+
+	/** Server-authoritative weapon switch request */
+	UFUNCTION(Server, Reliable)
+	void ServerSwitchWeapon();
+
 	/** Returns true if the character already owns a weapon of the given class */
 	AShooterWeapon* FindWeaponOfType(TSubclassOf<AShooterWeapon> WeaponClass) const;
 
@@ -184,4 +217,8 @@ public:
 
 	/** Returns true if the character is dead */
 	bool IsDead() const;
+
+	/** Returns true if this character owns a weapon of the given class */
+	UFUNCTION(BlueprintPure, Category="Weapons")
+	bool OwnsWeaponOfType(TSubclassOf<AShooterWeapon> WeaponClass) const;
 };

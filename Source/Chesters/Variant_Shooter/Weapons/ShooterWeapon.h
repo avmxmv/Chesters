@@ -13,6 +13,7 @@ class AShooterProjectile;
 class USkeletalMeshComponent;
 class UAnimMontage;
 class UAnimInstance;
+class FLifetimeProperty;
 
 /**
  *  Base class for a simple first person shooter weapon
@@ -47,6 +48,7 @@ protected:
 	int32 MagazineSize = 10;
 
 	/** Number of bullets in the current magazine */
+	UPROPERTY(ReplicatedUsing=OnRep_CurrentBullets)
 	int32 CurrentBullets = 0;
 	
 	/** Animation montage to play when firing this weapon */
@@ -122,11 +124,18 @@ protected:
 	/** Gameplay Cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
 
+	/** Replication setup */
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
 
 	/** Called when the weapon's owner is destroyed */
 	UFUNCTION()
 	void OnOwnerDestroyed(AActor* DestroyedActor);
+
+	/** Called when ammo changes on clients */
+	UFUNCTION()
+	void OnRep_CurrentBullets();
 
 public:
 
