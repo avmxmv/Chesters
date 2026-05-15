@@ -12,6 +12,7 @@
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
 #include "ShooterGameMode.h"
+#include "Net/UnrealNetwork.h"
 
 AShooterCharacter::AShooterCharacter()
 {
@@ -31,6 +32,11 @@ void AShooterCharacter::BeginPlay()
 
 	// update the HUD
 	OnDamaged.Broadcast(1.0f);
+
+	if (HasAuthority() && StartingWeaponClass)
+	{
+		AddWeaponClass(StartingWeaponClass);
+	}
 }
 
 void AShooterCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -39,6 +45,14 @@ void AShooterCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
 
 	// clear the respawn timer
 	GetWorld()->GetTimerManager().ClearTimer(RespawnTimer);
+}
+
+void AShooterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AShooterCharacter, OwnedWeapons);
+	DOREPLIFETIME(AShooterCharacter, CurrentWeapon);
 }
 
 void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -120,6 +134,12 @@ void AShooterCharacter::DoJumpEnd()
 
 void AShooterCharacter::DoStartFiring()
 {
+	if (!HasAuthority())
+	{
+		ServerStartFiring();
+		return;
+	}
+
 	// fire the current weapon
 	if (CurrentWeapon && !IsDead())
 	{
@@ -129,6 +149,12 @@ void AShooterCharacter::DoStartFiring()
 
 void AShooterCharacter::DoStopFiring()
 {
+	if (!HasAuthority())
+	{
+		ServerStopFiring();
+		return;
+	}
+
 	// stop firing the current weapon
 	if (CurrentWeapon && !IsDead())
 	{
@@ -138,14 +164,28 @@ void AShooterCharacter::DoStopFiring()
 
 void AShooterCharacter::DoSwitchWeapon()
 {
+	if (!HasAuthority())
+	{
+		ServerSwitchWeapon();
+		return;
+	}
+
 	// ensure we have at least two weapons two switch between
-	if (OwnedWeapons.Num() > 1 && !IsDead())
+	if (OwnedWeapons.Num() > 1 && CurrentWeapon && !IsDead())
 	{
 		// deactivate the old weapon
 		CurrentWeapon->DeactivateWeapon();
 
 		// find the index of the current weapon in the owned list
-		int32 WeaponIndex = OwnedWeapons.Find(CurrentWeapon);
+		int32 WeaponIndex = OwnedWeapons.IndexOfByPredicate([this](const TObjectPtr<AShooterWeapon>& Weapon)
+		{
+			return Weapon == CurrentWeapon;
+		});
+
+		if (WeaponIndex == INDEX_NONE)
+		{
+			return;
+		}
 
 		// is this the last weapon?
 		if (WeaponIndex == OwnedWeapons.Num() - 1)
@@ -163,11 +203,17 @@ void AShooterCharacter::DoSwitchWeapon()
 
 		// activate the new weapon
 		CurrentWeapon->ActivateWeapon();
+		RefreshWeaponAttachments();
 	}
 }
 
 void AShooterCharacter::AttachWeaponMeshes(AShooterWeapon* Weapon)
 {
+	if (!Weapon)
+	{
+		return;
+	}
+
 	const FAttachmentTransformRules AttachmentRule(EAttachmentRule::SnapToTarget, false);
 
 	// attach the weapon actor
@@ -175,7 +221,7 @@ void AShooterCharacter::AttachWeaponMeshes(AShooterWeapon* Weapon)
 
 	// attach the weapon meshes
 	Weapon->GetFirstPersonMesh()->AttachToComponent(GetFirstPersonMesh(), AttachmentRule, FirstPersonWeaponSocket);
-	Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachmentRule, FirstPersonWeaponSocket);
+	Weapon->GetThirdPersonMesh()->AttachToComponent(GetMesh(), AttachmentRule, ThirdPersonWeaponSocket);
 	
 }
 
@@ -214,6 +260,11 @@ FVector AShooterCharacter::GetWeaponTargetLocation()
 
 void AShooterCharacter::AddWeaponClass(const TSubclassOf<AShooterWeapon>& WeaponClass)
 {
+	if (!HasAuthority() || !WeaponClass)
+	{
+		return;
+	}
+
 	// do we already own this weapon?
 	AShooterWeapon* OwnedWeapon = FindWeaponOfType(WeaponClass);
 
@@ -242,18 +293,31 @@ void AShooterCharacter::AddWeaponClass(const TSubclassOf<AShooterWeapon>& Weapon
 			// switch to the new weapon
 			CurrentWeapon = AddedWeapon;
 			CurrentWeapon->ActivateWeapon();
+			RefreshWeaponAttachments();
 		}
 	}
 }
 
 void AShooterCharacter::OnWeaponActivated(AShooterWeapon* Weapon)
 {
+	if (!Weapon)
+	{
+		return;
+	}
+
 	// update the bullet counter
 	OnBulletCountUpdated.Broadcast(Weapon->GetMagazineSize(), Weapon->GetBulletCount());
 
 	// set the character mesh AnimInstances
-	GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
-	GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
+	if (Weapon->GetFirstPersonAnimInstanceClass())
+	{
+		GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
+	}
+
+	if (Weapon->GetThirdPersonAnimInstanceClass())
+	{
+		GetMesh()->SetAnimInstanceClass(Weapon->GetThirdPersonAnimInstanceClass());
+	}
 }
 
 void AShooterCharacter::OnWeaponDeactivated(AShooterWeapon* Weapon)
@@ -266,12 +330,60 @@ void AShooterCharacter::OnSemiWeaponRefire()
 	// unused
 }
 
+void AShooterCharacter::OnRep_CurrentWeapon()
+{
+	RefreshWeaponAttachments();
+
+	if (CurrentWeapon)
+	{
+		OnWeaponActivated(CurrentWeapon);
+	}
+	else
+	{
+		OnBulletCountUpdated.Broadcast(0, 0);
+	}
+}
+
+void AShooterCharacter::OnRep_OwnedWeapons()
+{
+	RefreshWeaponAttachments();
+}
+
+void AShooterCharacter::RefreshWeaponAttachments()
+{
+	for (AShooterWeapon* Weapon : OwnedWeapons)
+	{
+		if (!Weapon)
+		{
+			continue;
+		}
+
+		AttachWeaponMeshes(Weapon);
+		Weapon->SetActorHiddenInGame(Weapon != CurrentWeapon);
+	}
+}
+
+void AShooterCharacter::ServerStartFiring_Implementation()
+{
+	DoStartFiring();
+}
+
+void AShooterCharacter::ServerStopFiring_Implementation()
+{
+	DoStopFiring();
+}
+
+void AShooterCharacter::ServerSwitchWeapon_Implementation()
+{
+	DoSwitchWeapon();
+}
+
 AShooterWeapon* AShooterCharacter::FindWeaponOfType(TSubclassOf<AShooterWeapon> WeaponClass) const
 {
 	// check each owned weapon
 	for (AShooterWeapon* Weapon : OwnedWeapons)
 	{
-		if (Weapon->IsA(WeaponClass))
+		if (Weapon && Weapon->IsA(WeaponClass))
 		{
 			return Weapon;
 		}
@@ -325,4 +437,9 @@ bool AShooterCharacter::IsDead() const
 {
 	// the character is dead if their current HP drops to zero
 	return CurrentHP <= 0.0f;
+}
+
+bool AShooterCharacter::OwnsWeaponOfType(TSubclassOf<AShooterWeapon> WeaponClass) const
+{
+	return FindWeaponOfType(WeaponClass) != nullptr;
 }

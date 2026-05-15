@@ -8,7 +8,21 @@
 
 class UInputMappingContext;
 class AShooterCharacter;
+class AShooterWeapon;
 class UShooterBulletCounterUI;
+class FLifetimeProperty;
+
+USTRUCT(BlueprintType)
+struct FShooterWeaponPurchaseOption
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Shooter|Buy")
+	TSubclassOf<AShooterWeapon> WeaponClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Shooter|Buy", meta=(ClampMin=0))
+	int32 Price = 200;
+};
 
 /**
  *  Simple PlayerController for a first person shooter game
@@ -46,6 +60,18 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Shooter|Respawn")
 	TSubclassOf<AShooterCharacter> CharacterClass;
 
+	/** Money each player starts with in the current match */
+	UPROPERTY(EditAnywhere, Category="Shooter|Buy", meta=(ClampMin=0))
+	int32 StartingMoney = 800;
+
+	/** Weapons available to buy during the match */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Shooter|Buy", meta=(AllowPrivateAccess="true"))
+	TArray<FShooterWeaponPurchaseOption> BuyMenuOptions;
+
+	/** Current match money for this player */
+	UPROPERTY(ReplicatedUsing=OnRep_CurrentMoney, BlueprintReadOnly, Category="Shooter|Buy", meta=(AllowPrivateAccess="true"))
+	int32 CurrentMoney = 0;
+
 	/** Type of bullet counter UI widget to spawn */
 	UPROPERTY(EditAnywhere, Category="Shooter|UI")
 	TSubclassOf<UShooterBulletCounterUI> BulletCounterUIClass;
@@ -59,6 +85,9 @@ protected:
 	TObjectPtr<UShooterBulletCounterUI> BulletCounterUI;
 
 protected:
+
+	/** Replication setup */
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	/** Gameplay Initialization */
 	virtual void BeginPlay() override;
@@ -81,6 +110,33 @@ protected:
 	UFUNCTION()
 	void OnPawnDamaged(float LifePercent);
 
+	/** Called when replicated money changes on the owning client */
+	UFUNCTION()
+	void OnRep_CurrentMoney();
+
+	/** Notifies local UI/Blueprints that money changed */
+	void HandleMoneyChanged();
+
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
+
+public:
+
+	/** Attempts to buy the weapon at the configured buy menu index */
+	UFUNCTION(BlueprintCallable, Category="Shooter|Buy")
+	void BuyWeapon(int32 OptionIndex);
+
+	/** Returns the player's current match money */
+	UFUNCTION(BlueprintPure, Category="Shooter|Buy")
+	int32 GetCurrentMoney() const { return CurrentMoney; }
+
+	/** Allows Blueprint UI to refresh money text */
+	UFUNCTION(BlueprintImplementableEvent, Category="Shooter|Buy", meta=(DisplayName="On Money Changed"))
+	void BP_OnMoneyChanged(int32 NewMoney);
+
+protected:
+
+	/** Server-authoritative buy request */
+	UFUNCTION(Server, Reliable)
+	void ServerBuyWeapon(int32 OptionIndex);
 };

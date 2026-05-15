@@ -11,10 +11,14 @@
 #include "Animation/AnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Net/UnrealNetwork.h"
 
 AShooterWeapon::AShooterWeapon()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	bReplicates = true;
+	SetReplicateMovement(true);
+	SetActorHiddenInGame(true);
 
 	// create the root
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
@@ -40,6 +44,11 @@ void AShooterWeapon::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (!GetOwner())
+	{
+		return;
+	}
+
 	// subscribe to the owner's destroyed delegate
 	GetOwner()->OnDestroyed.AddDynamic(this, &AShooterWeapon::OnOwnerDestroyed);
 
@@ -47,11 +56,17 @@ void AShooterWeapon::BeginPlay()
 	WeaponOwner = Cast<IShooterWeaponHolder>(GetOwner());
 	PawnOwner = Cast<APawn>(GetOwner());
 
-	// fill the first ammo clip
-	CurrentBullets = MagazineSize;
+	if (HasAuthority())
+	{
+		// fill the first ammo clip
+		CurrentBullets = MagazineSize;
+	}
 
 	// attach the meshes to the owner
-	WeaponOwner->AttachWeaponMeshes(this);
+	if (WeaponOwner)
+	{
+		WeaponOwner->AttachWeaponMeshes(this);
+	}
 }
 
 void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
@@ -62,10 +77,30 @@ void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
 	GetWorld()->GetTimerManager().ClearTimer(RefireTimer);
 }
 
+void AShooterWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AShooterWeapon, CurrentBullets);
+}
+
 void AShooterWeapon::OnOwnerDestroyed(AActor* DestroyedActor)
 {
 	// ensure this weapon is destroyed when the owner is destroyed
 	Destroy();
+}
+
+void AShooterWeapon::OnRep_CurrentBullets()
+{
+	if (!WeaponOwner)
+	{
+		WeaponOwner = Cast<IShooterWeaponHolder>(GetOwner());
+	}
+
+	if (WeaponOwner)
+	{
+		WeaponOwner->UpdateWeaponHUD(CurrentBullets, MagazineSize);
+	}
 }
 
 void AShooterWeapon::ActivateWeapon()
@@ -74,7 +109,10 @@ void AShooterWeapon::ActivateWeapon()
 	SetActorHiddenInGame(false);
 
 	// notify the owner
-	WeaponOwner->OnWeaponActivated(this);
+	if (WeaponOwner)
+	{
+		WeaponOwner->OnWeaponActivated(this);
+	}
 }
 
 void AShooterWeapon::DeactivateWeapon()
@@ -86,11 +124,19 @@ void AShooterWeapon::DeactivateWeapon()
 	SetActorHiddenInGame(true);
 
 	// notify the owner
-	WeaponOwner->OnWeaponDeactivated(this);
+	if (WeaponOwner)
+	{
+		WeaponOwner->OnWeaponDeactivated(this);
+	}
 }
 
 void AShooterWeapon::StartFiring()
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// raise the firing flag
 	bIsFiring = true;
 
@@ -125,6 +171,11 @@ void AShooterWeapon::StopFiring()
 
 void AShooterWeapon::Fire()
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// ensure the player still wants to fire. They may have let go of the trigger
 	if (!bIsFiring)
 	{
@@ -161,6 +212,11 @@ void AShooterWeapon::FireCooldownExpired()
 
 void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	// get the projectile transform
 	FTransform ProjectileTransform = CalculateProjectileSpawnTransform(TargetLocation);
 	
