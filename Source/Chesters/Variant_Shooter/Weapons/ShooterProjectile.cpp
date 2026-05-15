@@ -3,6 +3,7 @@
 
 #include "ShooterProjectile.h"
 #include "Components/SphereComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "GameFramework/Character.h"
 #include "Kismet/GameplayStatics.h"
@@ -10,8 +11,12 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/Controller.h"
 #include "Engine/OverlapResult.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "DrawDebugHelpers.h"
+#include "Materials/MaterialInterface.h"
 #include "TimerManager.h"
+#include "UObject/ConstructorHelpers.h"
 
 AShooterProjectile::AShooterProjectile()
 {
@@ -26,6 +31,26 @@ AShooterProjectile::AShooterProjectile()
 	CollisionComponent->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	CollisionComponent->SetCollisionResponseToAllChannels(ECR_Block);
 	CollisionComponent->CanCharacterStepUpOn = ECanBeCharacterBase::ECB_No;
+
+	VisualMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Visual Mesh"));
+	VisualMesh->SetupAttachment(RootComponent);
+	VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	VisualMesh->SetGenerateOverlapEvents(false);
+	VisualMesh->SetCastShadow(false);
+	VisualMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::FirstPerson);
+	VisualMesh->SetRelativeScale3D(FVector(0.5f));
+
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> DefaultProjectileMesh(TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Projectiles/Meshes/SM_FoamBullet.SM_FoamBullet"));
+	if (DefaultProjectileMesh.Succeeded())
+	{
+		VisualMesh->SetStaticMesh(DefaultProjectileMesh.Object);
+	}
+
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> DefaultImpactDecal(TEXT("/Engine/EngineMaterials/DefaultDeferredDecalMaterial.DefaultDeferredDecalMaterial"));
+	if (DefaultImpactDecal.Succeeded())
+	{
+		ImpactDecalMaterial = DefaultImpactDecal.Object;
+	}
 
 	// create the projectile movement component. No need to attach it because it's not a Scene Component
 	ProjectileMovement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("Projectile Movement"));
@@ -56,11 +81,6 @@ void AShooterProjectile::EndPlay(EEndPlayReason::Type EndPlayReason)
 
 void AShooterProjectile::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (!HasAuthority())
-	{
-		return;
-	}
-
 	// ignore if we've already hit something else
 	if (bHit)
 	{
@@ -71,6 +91,15 @@ void AShooterProjectile::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Ot
 
 	// disable collision on the projectile
 	CollisionComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	SpawnImpactDecal(Hit);
+
+	if (!HasAuthority())
+	{
+		BP_OnProjectileHit(Hit);
+		Destroy();
+		return;
+	}
 
 	// make AI perception noise
 	MakeNoise(NoiseLoudness, GetInstigator(), GetActorLocation(), NoiseRange, NoiseTag);
@@ -101,6 +130,39 @@ void AShooterProjectile::NotifyHit(class UPrimitiveComponent* MyComp, AActor* Ot
 		// destroy the projectile right away
 		Destroy();
 	}
+}
+
+void AShooterProjectile::SpawnImpactDecal(const FHitResult& Hit) const
+{
+	if (!Hit.GetComponent())
+	{
+		return;
+	}
+
+	if (bDrawDebugImpactMarker && GetWorld())
+	{
+		const FVector MarkerLocation = Hit.ImpactPoint + (Hit.ImpactNormal * 1.5f);
+		DrawDebugSphere(GetWorld(), MarkerLocation, ImpactMarkerSize, 16, FColor::Red, false, ImpactDecalLifeSpan, 0, 2.0f);
+		DrawDebugPoint(GetWorld(), MarkerLocation, ImpactMarkerSize * 2.0f, FColor::Red, false, ImpactDecalLifeSpan, 0);
+	}
+
+	if (!ImpactDecalMaterial)
+	{
+		return;
+	}
+
+	FRotator DecalRotation = Hit.ImpactNormal.Rotation();
+	DecalRotation.Roll = FMath::FRandRange(-180.0f, 180.0f);
+
+	UGameplayStatics::SpawnDecalAttached(
+		ImpactDecalMaterial,
+		ImpactDecalSize,
+		Hit.GetComponent(),
+		NAME_None,
+		Hit.ImpactPoint,
+		DecalRotation,
+		EAttachLocation::KeepWorldPosition,
+		ImpactDecalLifeSpan);
 }
 
 void AShooterProjectile::ExplosionCheck(const FVector& ExplosionCenter)

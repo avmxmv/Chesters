@@ -110,12 +110,34 @@ protected:
 	UFUNCTION()
 	void OnPawnDamaged(float LifePercent);
 
+	/** Called when the possessed pawn starts reloading */
+	UFUNCTION()
+	void OnReloadStarted(float ReloadDuration);
+
+	/** Called when the possessed pawn finishes reloading */
+	UFUNCTION()
+	void OnReloadFinished();
+
 	/** Called when replicated money changes on the owning client */
 	UFUNCTION()
 	void OnRep_CurrentMoney();
 
 	/** Notifies local UI/Blueprints that money changed */
 	void HandleMoneyChanged();
+
+	/** Shows reload UI on the owning client */
+	UFUNCTION(Client, Reliable)
+	void ClientReloadStarted(float ReloadDuration);
+
+	/** Hides reload UI on the owning client */
+	UFUNCTION(Client, Reliable)
+	void ClientReloadFinished();
+
+	/** Local helper for starting reload UI */
+	void HandleReloadStarted(float ReloadDuration);
+
+	/** Local helper for finishing reload UI */
+	void HandleReloadFinished();
 
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;

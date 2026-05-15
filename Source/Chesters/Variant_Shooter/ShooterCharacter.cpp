@@ -6,10 +6,13 @@
 #include "EnhancedInputComponent.h"
 #include "Components/InputComponent.h"
 #include "Components/PawnNoiseEmitterComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
+#include "InputCoreTypes.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "ShooterGameMode.h"
@@ -23,7 +26,7 @@ AShooterCharacter::AShooterCharacter()
 	// configure movement
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 600.0f, 0.0f);
 
-	static ConstructorHelpers::FClassFinder<AShooterWeapon> StartingWeaponBlueprint(TEXT("/Game/Weapons/BP_Pistol"));
+	static ConstructorHelpers::FClassFinder<AShooterWeapon> StartingWeaponBlueprint(TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol"));
 	if (StartingWeaponBlueprint.Succeeded())
 	{
 		StartingWeaponClass = StartingWeaponBlueprint.Class;
@@ -36,6 +39,9 @@ void AShooterCharacter::BeginPlay()
 
 	// reset HP to max
 	CurrentHP = MaxHP;
+	DefaultWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+	FirstPersonMeshBaseLocation = GetFirstPersonMesh()->GetRelativeLocation();
+	FirstPersonMeshBaseRotation = GetFirstPersonMesh()->GetRelativeRotation();
 
 	// update the HUD
 	OnDamaged.Broadcast(1.0f);
@@ -43,7 +49,7 @@ void AShooterCharacter::BeginPlay()
 	TSubclassOf<AShooterWeapon> WeaponClassToSpawn = StartingWeaponClass;
 	if (!WeaponClassToSpawn)
 	{
-		WeaponClassToSpawn = LoadClass<AShooterWeapon>(nullptr, TEXT("/Game/Weapons/BP_Pistol.BP_Pistol_C"));
+		WeaponClassToSpawn = LoadClass<AShooterWeapon>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol.BP_ShooterWeapon_Pistol_C"));
 	}
 
 	if (HasAuthority() && WeaponClassToSpawn)
@@ -58,6 +64,39 @@ void AShooterCharacter::EndPlay(EEndPlayReason::Type EndPlayReason)
 
 	// clear the respawn timer
 	GetWorld()->GetTimerManager().ClearTimer(RespawnTimer);
+}
+
+void AShooterCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (!bEnableRunHandBob || !GetFirstPersonMesh())
+	{
+		return;
+	}
+
+	const float Speed = GetVelocity().Size2D();
+	if (Speed <= RunHandBobSpeedThreshold || GetCharacterMovement()->MaxWalkSpeed <= SlowWalkSpeed + KINDA_SMALL_NUMBER)
+	{
+		RunHandBobTime = 0.0f;
+		GetFirstPersonMesh()->SetRelativeLocationAndRotation(FirstPersonMeshBaseLocation, FirstPersonMeshBaseRotation);
+		return;
+	}
+
+	RunHandBobTime += DeltaSeconds * RunHandBobFrequency;
+
+	const float BobSin = FMath::Sin(RunHandBobTime);
+	const float BobCos = FMath::Cos(RunHandBobTime * 2.0f);
+	const FVector BobLocation(
+		RunHandBobLocationAmplitude.X * BobSin,
+		RunHandBobLocationAmplitude.Y * BobSin,
+		RunHandBobLocationAmplitude.Z * BobCos);
+	const FRotator BobRotation(
+		RunHandBobRotationAmplitude.Pitch * BobCos,
+		RunHandBobRotationAmplitude.Yaw * BobSin,
+		RunHandBobRotationAmplitude.Roll * BobSin);
+
+	GetFirstPersonMesh()->SetRelativeLocationAndRotation(FirstPersonMeshBaseLocation + BobLocation, FirstPersonMeshBaseRotation + BobRotation);
 }
 
 void AShooterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -84,6 +123,11 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &AShooterCharacter::DoSwitchWeapon);
 	}
 
+	PlayerInputComponent->BindKey(EKeys::LeftShift, IE_Pressed, this, &AShooterCharacter::DoStartSlowWalk);
+	PlayerInputComponent->BindKey(EKeys::LeftShift, IE_Released, this, &AShooterCharacter::DoStopSlowWalk);
+	PlayerInputComponent->BindKey(EKeys::RightShift, IE_Pressed, this, &AShooterCharacter::DoStartSlowWalk);
+	PlayerInputComponent->BindKey(EKeys::RightShift, IE_Released, this, &AShooterCharacter::DoStopSlowWalk);
+	PlayerInputComponent->BindKey(EKeys::R, IE_Pressed, this, &AShooterCharacter::DoReload);
 }
 
 float AShooterCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
@@ -220,6 +264,50 @@ void AShooterCharacter::DoSwitchWeapon()
 	}
 }
 
+void AShooterCharacter::DoStartSlowWalk()
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	ApplySlowWalk(true);
+
+	if (!HasAuthority())
+	{
+		ServerStartSlowWalk();
+	}
+}
+
+void AShooterCharacter::DoStopSlowWalk()
+{
+	ApplySlowWalk(false);
+
+	if (!HasAuthority())
+	{
+		ServerStopSlowWalk();
+	}
+}
+
+void AShooterCharacter::DoReload()
+{
+	if (!HasAuthority())
+	{
+		if (CurrentWeapon && !IsDead() && CurrentWeapon->CanReload())
+		{
+			OnReloadStarted.Broadcast(CurrentWeapon->GetReloadDuration());
+		}
+
+		ServerReload();
+		return;
+	}
+
+	if (CurrentWeapon && !IsDead())
+	{
+		CurrentWeapon->Reload();
+	}
+}
+
 void AShooterCharacter::AttachWeaponMeshes(AShooterWeapon* Weapon)
 {
 	if (!Weapon)
@@ -240,7 +328,21 @@ void AShooterCharacter::AttachWeaponMeshes(AShooterWeapon* Weapon)
 
 void AShooterCharacter::PlayFiringMontage(UAnimMontage* Montage)
 {
-	// stub
+	UAnimMontage* MontageToPlay = Montage;
+	if (!MontageToPlay)
+	{
+		MontageToPlay = LoadObject<UAnimMontage>(nullptr, TEXT("/Game/Characters/Mannequins/Anims/Pistol/MM_Pistol_Fire_Montage.MM_Pistol_Fire_Montage"));
+	}
+
+	if (!MontageToPlay)
+	{
+		return;
+	}
+
+	if (UAnimInstance* AnimInstance = GetFirstPersonMesh()->GetAnimInstance())
+	{
+		AnimInstance->Montage_Play(MontageToPlay);
+	}
 }
 
 void AShooterCharacter::AddWeaponRecoil(float Recoil)
@@ -321,10 +423,23 @@ void AShooterCharacter::OnWeaponActivated(AShooterWeapon* Weapon)
 	// update the bullet counter
 	OnBulletCountUpdated.Broadcast(Weapon->GetMagazineSize(), Weapon->GetBulletCount());
 
+	GetFirstPersonMesh()->SetHiddenInGame(false, true);
+	GetFirstPersonMesh()->SetVisibility(true, true);
+	Weapon->GetFirstPersonMesh()->SetHiddenInGame(false, true);
+	Weapon->GetFirstPersonMesh()->SetVisibility(true, true);
+
 	// set the character mesh AnimInstances
 	if (Weapon->GetFirstPersonAnimInstanceClass())
 	{
 		GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
+	}
+	else
+	{
+		static TSubclassOf<UAnimInstance> DefaultPistolAnimClass = LoadClass<UAnimInstance>(nullptr, TEXT("/Game/Variant_Shooter/Anims/ABP_FP_Pistol.ABP_FP_Pistol_C"));
+		if (DefaultPistolAnimClass)
+		{
+			GetFirstPersonMesh()->SetAnimInstanceClass(DefaultPistolAnimClass);
+		}
 	}
 
 	if (Weapon->GetThirdPersonAnimInstanceClass())
@@ -341,6 +456,16 @@ void AShooterCharacter::OnWeaponDeactivated(AShooterWeapon* Weapon)
 void AShooterCharacter::OnSemiWeaponRefire()
 {
 	// unused
+}
+
+void AShooterCharacter::OnWeaponReloadStarted(float ReloadDuration)
+{
+	OnReloadStarted.Broadcast(ReloadDuration);
+}
+
+void AShooterCharacter::OnWeaponReloadFinished()
+{
+	OnReloadFinished.Broadcast();
 }
 
 void AShooterCharacter::OnRep_CurrentWeapon()
@@ -389,6 +514,39 @@ void AShooterCharacter::ServerStopFiring_Implementation()
 void AShooterCharacter::ServerSwitchWeapon_Implementation()
 {
 	DoSwitchWeapon();
+}
+
+void AShooterCharacter::ServerStartSlowWalk_Implementation()
+{
+	if (!IsDead())
+	{
+		ApplySlowWalk(true);
+	}
+}
+
+void AShooterCharacter::ServerStopSlowWalk_Implementation()
+{
+	ApplySlowWalk(false);
+}
+
+void AShooterCharacter::ServerReload_Implementation()
+{
+	DoReload();
+}
+
+void AShooterCharacter::ApplySlowWalk(bool bSlowWalk)
+{
+	if (!GetCharacterMovement())
+	{
+		return;
+	}
+
+	if (DefaultWalkSpeed <= 0.0f)
+	{
+		DefaultWalkSpeed = GetCharacterMovement()->MaxWalkSpeed;
+	}
+
+	GetCharacterMovement()->MaxWalkSpeed = bSlowWalk ? SlowWalkSpeed : DefaultWalkSpeed;
 }
 
 AShooterWeapon* AShooterCharacter::FindWeaponOfType(TSubclassOf<AShooterWeapon> WeaponClass) const

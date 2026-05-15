@@ -137,6 +137,12 @@ public:
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() override;
 
+	/** Notifies the owner that this weapon started reloading */
+	virtual void OnWeaponReloadStarted(float ReloadDuration) override;
+
+	/** Notifies the owner that this weapon finished reloading */
+	virtual void OnWeaponReloadFinished() override;
+
 	//~End IShooterWeaponHolder interface
 
 protected:

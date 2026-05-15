@@ -9,7 +9,10 @@
 #include "Components/SceneComponent.h"
 #include "TimerManager.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/PointLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
 
@@ -30,6 +33,7 @@ AShooterWeapon::AShooterWeapon()
 	FirstPersonMesh->SetCollisionProfileName(FName("NoCollision"));
 	FirstPersonMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::FirstPerson);
 	FirstPersonMesh->bOnlyOwnerSee = true;
+	FirstPersonMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 
 	// create the third person mesh
 	ThirdPersonMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Third Person Mesh"));
@@ -38,6 +42,15 @@ AShooterWeapon::AShooterWeapon()
 	ThirdPersonMesh->SetCollisionProfileName(FName("NoCollision"));
 	ThirdPersonMesh->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::WorldSpaceRepresentation);
 	ThirdPersonMesh->bOwnerNoSee = true;
+
+	MuzzleFlashLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("Muzzle Flash Light"));
+	MuzzleFlashLight->SetupAttachment(FirstPersonMesh);
+	MuzzleFlashLight->SetVisibility(false);
+	MuzzleFlashLight->SetHiddenInGame(true);
+	MuzzleFlashLight->SetCastShadows(false);
+	MuzzleFlashLight->SetIntensity(MuzzleFlashIntensity);
+	MuzzleFlashLight->SetAttenuationRadius(MuzzleFlashRadius);
+	MuzzleFlashLight->SetLightColor(MuzzleFlashColor);
 }
 
 void AShooterWeapon::BeginPlay()
@@ -75,6 +88,8 @@ void AShooterWeapon::EndPlay(EEndPlayReason::Type EndPlayReason)
 
 	// clear the refire timer
 	GetWorld()->GetTimerManager().ClearTimer(RefireTimer);
+	GetWorld()->GetTimerManager().ClearTimer(MuzzleFlashTimer);
+	GetWorld()->GetTimerManager().ClearTimer(ReloadTimer);
 }
 
 void AShooterWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -169,6 +184,35 @@ void AShooterWeapon::StopFiring()
 	GetWorld()->GetTimerManager().ClearTimer(RefireTimer);
 }
 
+void AShooterWeapon::Reload()
+{
+	if (!HasAuthority() || bIsReloading || CurrentBullets >= MagazineSize)
+	{
+		return;
+	}
+
+	StopFiring();
+	bIsReloading = true;
+
+	if (WeaponOwner)
+	{
+		UAnimMontage* MontageToPlay = ReloadMontage;
+		if (!MontageToPlay)
+		{
+			MontageToPlay = LoadObject<UAnimMontage>(nullptr, TEXT("/Game/Characters/Mannequins/Anims/Pistol/MM_Pistol_Reload.MM_Pistol_Reload"));
+		}
+
+		if (MontageToPlay)
+		{
+			WeaponOwner->PlayFiringMontage(MontageToPlay);
+		}
+
+		WeaponOwner->OnWeaponReloadStarted(ReloadDuration);
+	}
+
+	GetWorld()->GetTimerManager().SetTimer(ReloadTimer, this, &AShooterWeapon::FinishReload, ReloadDuration, false);
+}
+
 void AShooterWeapon::Fire()
 {
 	if (!HasAuthority())
@@ -177,7 +221,7 @@ void AShooterWeapon::Fire()
 	}
 
 	// ensure the player still wants to fire. They may have let go of the trigger
-	if (!bIsFiring)
+	if (!bIsFiring || bIsReloading || CurrentBullets <= 0)
 	{
 		return;
 	}
@@ -210,6 +254,23 @@ void AShooterWeapon::FireCooldownExpired()
 	WeaponOwner->OnSemiWeaponRefire();
 }
 
+void AShooterWeapon::FinishReload()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	bIsReloading = false;
+	CurrentBullets = MagazineSize;
+
+	if (WeaponOwner)
+	{
+		WeaponOwner->UpdateWeaponHUD(CurrentBullets, MagazineSize);
+		WeaponOwner->OnWeaponReloadFinished();
+	}
+}
+
 void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 {
 	if (!HasAuthority())
@@ -229,6 +290,9 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 
 	AShooterProjectile* Projectile = GetWorld()->SpawnActor<AShooterProjectile>(ProjectileClass, ProjectileTransform, SpawnParams);
 
+	TriggerMuzzleFlash();
+	DrawShotImpactMarker(TargetLocation, ProjectileTransform);
+
 	// play the firing montage
 	WeaponOwner->PlayFiringMontage(FiringMontage);
 
@@ -237,12 +301,6 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 
 	// consume bullets
 	--CurrentBullets;
-
-	// if the clip is depleted, reload it
-	if (CurrentBullets <= 0)
-	{
-		CurrentBullets = MagazineSize;
-	}
 
 	// update the weapon HUD
 	WeaponOwner->UpdateWeaponHUD(CurrentBullets, MagazineSize);
@@ -261,6 +319,59 @@ FTransform AShooterWeapon::CalculateProjectileSpawnTransform(const FVector& Targ
 
 	// return the built transform
 	return FTransform(AimRot, SpawnLoc, FVector::OneVector);
+}
+
+void AShooterWeapon::TriggerMuzzleFlash()
+{
+	if (!MuzzleFlashLight || !GetWorld())
+	{
+		return;
+	}
+
+	MuzzleFlashLight->SetWorldLocation(FirstPersonMesh->GetSocketLocation(MuzzleSocketName));
+	MuzzleFlashLight->SetIntensity(MuzzleFlashIntensity);
+	MuzzleFlashLight->SetAttenuationRadius(MuzzleFlashRadius);
+	MuzzleFlashLight->SetLightColor(MuzzleFlashColor);
+	MuzzleFlashLight->SetHiddenInGame(false);
+	MuzzleFlashLight->SetVisibility(true);
+
+	GetWorld()->GetTimerManager().SetTimer(MuzzleFlashTimer, this, &AShooterWeapon::HideMuzzleFlash, MuzzleFlashDuration, false);
+}
+
+void AShooterWeapon::HideMuzzleFlash()
+{
+	if (MuzzleFlashLight)
+	{
+		MuzzleFlashLight->SetVisibility(false);
+		MuzzleFlashLight->SetHiddenInGame(true);
+	}
+}
+
+void AShooterWeapon::DrawShotImpactMarker(const FVector& TargetLocation, const FTransform& ProjectileTransform) const
+{
+	if (!bDrawShotImpactMarker || !GetWorld())
+	{
+		return;
+	}
+
+	const FVector Start = ProjectileTransform.GetLocation();
+	const FVector Direction = (TargetLocation - Start).GetSafeNormal();
+	const FVector TraceEnd = TargetLocation + (Direction * 100.0f);
+
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(this);
+	QueryParams.AddIgnoredActor(GetOwner());
+	if (PawnOwner)
+	{
+		QueryParams.AddIgnoredActor(PawnOwner);
+	}
+
+	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, TraceEnd, ECC_Visibility, QueryParams);
+	const FVector MarkerLocation = bHit ? Hit.ImpactPoint + (Hit.ImpactNormal * 1.5f) : TargetLocation;
+
+	DrawDebugSphere(GetWorld(), MarkerLocation, ShotImpactMarkerSize, 16, FColor::Red, false, ShotImpactMarkerLifeSpan, 0, 2.0f);
+	DrawDebugPoint(GetWorld(), MarkerLocation, ShotImpactMarkerSize * 2.0f, FColor::Red, false, ShotImpactMarkerLifeSpan, 0);
 }
 
 const TSubclassOf<UAnimInstance>& AShooterWeapon::GetFirstPersonAnimInstanceClass() const

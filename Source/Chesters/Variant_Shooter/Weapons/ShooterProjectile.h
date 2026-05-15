@@ -8,6 +8,8 @@
 
 class USphereComponent;
 class UProjectileMovementComponent;
+class UStaticMeshComponent;
+class UMaterialInterface;
 class ACharacter;
 class UPrimitiveComponent;
 
@@ -26,6 +28,10 @@ class CHESTERS_API AShooterProjectile : public AActor
 	/** Handles movement for the projectile */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UProjectileMovementComponent* ProjectileMovement;
+
+	/** Default visible projectile mesh, so bullets are not invisible collision spheres. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UStaticMeshComponent* VisualMesh;
 
 protected:
 
@@ -72,6 +78,26 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Projectile|Destruction", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
 	float DeferredDestructionTime = 5.0f;
 
+	/** Decal spawned on surfaces hit by this projectile. */
+	UPROPERTY(EditAnywhere, Category="Projectile|Impact")
+	UMaterialInterface* ImpactDecalMaterial;
+
+	/** Size of the impact decal on the hit surface. */
+	UPROPERTY(EditAnywhere, Category="Projectile|Impact")
+	FVector ImpactDecalSize = FVector(8.0f, 8.0f, 8.0f);
+
+	/** How long impact decals remain on surfaces. */
+	UPROPERTY(EditAnywhere, Category="Projectile|Impact", meta = (ClampMin = 0, ClampMax = 60, Units = "s"))
+	float ImpactDecalLifeSpan = 20.0f;
+
+	/** Draws a temporary red marker at the impact point for clear bullet hit feedback. */
+	UPROPERTY(EditAnywhere, Category="Projectile|Impact")
+	bool bDrawDebugImpactMarker = true;
+
+	/** Size of the red impact marker. */
+	UPROPERTY(EditAnywhere, Category="Projectile|Impact", meta = (ClampMin = 0, ClampMax = 100, Units = "cm"))
+	float ImpactMarkerSize = 8.0f;
+
 	/** Timer to handle deferred destruction of this projectile */
 	FTimerHandle DestructionTimer;
 
@@ -98,6 +124,9 @@ protected:
 
 	/** Processes a projectile hit for the given actor */
 	void ProcessHit(AActor* HitActor, UPrimitiveComponent* HitComp, const FVector& HitLocation, const FVector& HitDirection);
+
+	/** Spawns a visual mark on the impacted surface. */
+	void SpawnImpactDecal(const FHitResult& Hit) const;
 
 	/** Passes control to Blueprint to implement any effects on hit. */
 	UFUNCTION(BlueprintImplementableEvent, Category="Projectile", meta = (DisplayName = "On Projectile Hit"))
