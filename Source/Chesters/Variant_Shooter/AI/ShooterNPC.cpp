@@ -148,6 +148,16 @@ void AShooterNPC::OnSemiWeaponRefire()
 	}
 }
 
+void AShooterNPC::OnWeaponReloadStarted(float ReloadDuration)
+{
+	// unused
+}
+
+void AShooterNPC::OnWeaponReloadFinished()
+{
+	// unused
+}
+
 void AShooterNPC::Die()
 {
 	// ignore if already dead

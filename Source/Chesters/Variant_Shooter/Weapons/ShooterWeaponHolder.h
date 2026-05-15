@@ -52,4 +52,10 @@ public:
 
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() = 0;
+
+	/** Notifies the owner that this weapon started reloading */
+	virtual void OnWeaponReloadStarted(float ReloadDuration) = 0;
+
+	/** Notifies the owner that this weapon finished reloading */
+	virtual void OnWeaponReloadFinished() = 0;
 };

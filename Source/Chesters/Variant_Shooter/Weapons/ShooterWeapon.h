@@ -11,6 +11,7 @@
 class IShooterWeaponHolder;
 class AShooterProjectile;
 class USkeletalMeshComponent;
+class UPointLightComponent;
 class UAnimMontage;
 class UAnimInstance;
 class FLifetimeProperty;
@@ -34,6 +35,10 @@ class CHESTERS_API AShooterWeapon : public AActor
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* ThirdPersonMesh;
 
+	/** Short-lived light used as a simple muzzle flash. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UPointLightComponent* MuzzleFlashLight;
+
 protected:
 
 	/** Cast pointer to the weapon owner */
@@ -50,10 +55,21 @@ protected:
 	/** Number of bullets in the current magazine */
 	UPROPERTY(ReplicatedUsing=OnRep_CurrentBullets)
 	int32 CurrentBullets = 0;
+
+	/** If true, this weapon is currently reloading */
+	bool bIsReloading = false;
 	
 	/** Animation montage to play when firing this weapon */
 	UPROPERTY(EditAnywhere, Category="Animation")
 	UAnimMontage* FiringMontage;
+
+	/** Animation montage to play when reloading this weapon */
+	UPROPERTY(EditAnywhere, Category="Animation")
+	UAnimMontage* ReloadMontage;
+
+	/** Time it takes to refill the magazine after pressing reload */
+	UPROPERTY(EditAnywhere, Category="Ammo", meta = (ClampMin = 0, ClampMax = 10, Units = "s"))
+	float ReloadDuration = 1.5f;
 
 	/** AnimInstance class to set for the first person character mesh when this weapon is active */
 	UPROPERTY(EditAnywhere, Category="Animation")
@@ -79,6 +95,34 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Aim", meta = (ClampMin = 0, ClampMax = 1000, Units = "cm"))
 	float MuzzleOffset = 10.0f;
 
+	/** How long the muzzle flash light remains visible after a shot. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Muzzle Flash", meta = (ClampMin = 0, ClampMax = 1, Units = "s"))
+	float MuzzleFlashDuration = 0.05f;
+
+	/** Brightness of the muzzle flash light. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Muzzle Flash", meta = (ClampMin = 0, ClampMax = 10000))
+	float MuzzleFlashIntensity = 6000.0f;
+
+	/** Radius affected by the muzzle flash light. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Muzzle Flash", meta = (ClampMin = 0, ClampMax = 1000, Units = "cm"))
+	float MuzzleFlashRadius = 160.0f;
+
+	/** Color of the muzzle flash light. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Muzzle Flash")
+	FLinearColor MuzzleFlashColor = FLinearColor(1.0f, 0.35f, 0.02f);
+
+	/** Draws a temporary red marker where this shot lands. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Impact")
+	bool bDrawShotImpactMarker = true;
+
+	/** Size of the red shot impact marker. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Impact", meta = (ClampMin = 0, ClampMax = 100, Units = "cm"))
+	float ShotImpactMarkerSize = 8.0f;
+
+	/** How long the shot impact marker remains visible. */
+	UPROPERTY(EditAnywhere, Category="Visuals|Impact", meta = (ClampMin = 0, ClampMax = 60, Units = "s"))
+	float ShotImpactMarkerLifeSpan = 20.0f;
+
 	/** If true, this weapon will automatically fire at the refire rate */
 	UPROPERTY(EditAnywhere, Category="Refire")
 	bool bFullAuto = false;
@@ -95,6 +139,12 @@ protected:
 
 	/** Timer to handle full auto refiring */
 	FTimerHandle RefireTimer;
+
+	/** Timer to hide the muzzle flash light. */
+	FTimerHandle MuzzleFlashTimer;
+
+	/** Timer to complete reload after ReloadDuration expires. */
+	FTimerHandle ReloadTimer;
 
 	/** Cast pawn pointer to the owner for AI perception system interactions */
 	TObjectPtr<APawn> PawnOwner;
@@ -151,6 +201,9 @@ public:
 	/** Stop firing this weapon */
 	void StopFiring();
 
+	/** Reloads this weapon's magazine */
+	void Reload();
+
 protected:
 
 	/** Fire the weapon */
@@ -159,11 +212,23 @@ protected:
 	/** Called when the refire rate time has passed while shooting semi auto weapons */
 	void FireCooldownExpired();
 
+	/** Completes the pending reload */
+	void FinishReload();
+
 	/** Fire a projectile towards the target location */
 	virtual void FireProjectile(const FVector& TargetLocation);
 
 	/** Calculates the spawn transform for projectiles shot by this weapon */
 	FTransform CalculateProjectileSpawnTransform(const FVector& TargetLocation) const;
+
+	/** Shows the muzzle flash light briefly at the muzzle socket. */
+	void TriggerMuzzleFlash();
+
+	/** Hides the muzzle flash light after its timer expires. */
+	void HideMuzzleFlash();
+
+	/** Draws clear temporary feedback at the hit point for the shot. */
+	void DrawShotImpactMarker(const FVector& TargetLocation, const FTransform& ProjectileTransform) const;
 
 public:
 
@@ -186,4 +251,10 @@ public:
 
 	/** Returns the current bullet count */
 	int32 GetBulletCount() const { return CurrentBullets; }
+
+	/** Returns true if this weapon can start reloading now */
+	bool CanReload() const { return !bIsReloading && CurrentBullets < MagazineSize; }
+
+	/** Returns how long reload takes for this weapon */
+	float GetReloadDuration() const { return ReloadDuration; }
 };

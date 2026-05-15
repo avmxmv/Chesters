@@ -56,7 +56,7 @@ void AShooterPlayerController::BeginPlay()
 			UE_LOG(LogChesters, Error, TEXT("Could not spawn bullet counter widget."));
 
 		}
-		
+
 		HandleMoneyChanged();
 	}
 }
@@ -104,6 +104,8 @@ void AShooterPlayerController::OnPossess(APawn* InPawn)
 		// subscribe to the pawn's delegates
 		ShooterCharacter->OnBulletCountUpdated.AddDynamic(this, &AShooterPlayerController::OnBulletCountUpdated);
 		ShooterCharacter->OnDamaged.AddDynamic(this, &AShooterPlayerController::OnPawnDamaged);
+		ShooterCharacter->OnReloadStarted.AddDynamic(this, &AShooterPlayerController::OnReloadStarted);
+		ShooterCharacter->OnReloadFinished.AddDynamic(this, &AShooterPlayerController::OnReloadFinished);
 
 		// force update the life bar
 		ShooterCharacter->OnDamaged.Broadcast(1.0f);
@@ -116,6 +118,7 @@ void AShooterPlayerController::OnPawnDestroyed(AActor* DestroyedActor)
 	if (IsValid(BulletCounterUI))
 	{
 		BulletCounterUI->BP_UpdateBulletCounter(0, 0);
+		BulletCounterUI->BP_ReloadFinished();
 	}
 
 	if (!HasAuthority())
@@ -157,6 +160,54 @@ void AShooterPlayerController::OnPawnDamaged(float LifePercent)
 	if (IsValid(BulletCounterUI))
 	{
 		BulletCounterUI->BP_Damaged(LifePercent);
+	}
+}
+
+void AShooterPlayerController::OnReloadStarted(float ReloadDuration)
+{
+	HandleReloadStarted(ReloadDuration);
+
+	if (HasAuthority() && !IsLocalPlayerController())
+	{
+		ClientReloadStarted(ReloadDuration);
+	}
+}
+
+void AShooterPlayerController::OnReloadFinished()
+{
+	HandleReloadFinished();
+
+	if (HasAuthority() && !IsLocalPlayerController())
+	{
+		ClientReloadFinished();
+	}
+}
+
+void AShooterPlayerController::ClientReloadStarted_Implementation(float ReloadDuration)
+{
+	HandleReloadStarted(ReloadDuration);
+}
+
+void AShooterPlayerController::ClientReloadFinished_Implementation()
+{
+	HandleReloadFinished();
+}
+
+void AShooterPlayerController::HandleReloadStarted(float ReloadDuration)
+{
+	if (IsValid(BulletCounterUI))
+	{
+		BulletCounterUI->StartReloadIndicator(ReloadDuration);
+		BulletCounterUI->BP_ReloadStarted(ReloadDuration);
+	}
+}
+
+void AShooterPlayerController::HandleReloadFinished()
+{
+	if (IsValid(BulletCounterUI))
+	{
+		BulletCounterUI->FinishReloadIndicator();
+		BulletCounterUI->BP_ReloadFinished();
 	}
 }
 

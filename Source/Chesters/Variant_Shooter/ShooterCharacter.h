@@ -15,6 +15,8 @@ class FLifetimeProperty;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FBulletCountUpdatedDelegate, int32, MagazineSize, int32, Bullets);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDamagedDelegate, float, LifePercent);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FReloadStartedDelegate, float, ReloadDuration);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FReloadFinishedDelegate);
 
 /**
  *  A player controllable first person shooter character
@@ -39,6 +41,37 @@ protected:
 	/** Switch weapon input action */
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* SwitchWeaponAction;
+
+	/** Movement speed while Shift is held */
+	UPROPERTY(EditAnywhere, Category ="Movement", meta = (ClampMin = 0, Units = "cm/s"))
+	float SlowWalkSpeed = 250.0f;
+
+	/** Cached movement speed restored when Shift is released */
+	float DefaultWalkSpeed = 0.0f;
+
+	/** Adds subtle first-person hand movement while running without Shift. */
+	UPROPERTY(EditAnywhere, Category="Movement|First Person Run Bob")
+	bool bEnableRunHandBob = true;
+
+	/** Minimum speed required to play first-person hand bob. Keep above slow-walk speed. */
+	UPROPERTY(EditAnywhere, Category="Movement|First Person Run Bob", meta = (ClampMin = 0, Units = "cm/s"))
+	float RunHandBobSpeedThreshold = 300.0f;
+
+	/** Frequency of first-person hand bob. */
+	UPROPERTY(EditAnywhere, Category="Movement|First Person Run Bob", meta = (ClampMin = 0, ClampMax = 30))
+	float RunHandBobFrequency = 9.0f;
+
+	/** Local movement amplitude for first-person hand bob. */
+	UPROPERTY(EditAnywhere, Category="Movement|First Person Run Bob")
+	FVector RunHandBobLocationAmplitude = FVector(0.0f, 1.5f, 1.0f);
+
+	/** Local rotation amplitude for first-person hand bob. */
+	UPROPERTY(EditAnywhere, Category="Movement|First Person Run Bob")
+	FRotator RunHandBobRotationAmplitude = FRotator(1.0f, 0.0f, 1.5f);
+
+	FVector FirstPersonMeshBaseLocation = FVector::ZeroVector;
+	FRotator FirstPersonMeshBaseRotation = FRotator::ZeroRotator;
+	float RunHandBobTime = 0.0f;
 
 	/** Name of the first person mesh weapon socket */
 	UPROPERTY(EditAnywhere, Category ="Weapons")
@@ -92,6 +125,12 @@ public:
 	/** Damaged delegate */
 	FDamagedDelegate OnDamaged;
 
+	/** Reload started delegate */
+	FReloadStartedDelegate OnReloadStarted;
+
+	/** Reload finished delegate */
+	FReloadFinishedDelegate OnReloadFinished;
+
 public:
 
 	/** Constructor */
@@ -104,6 +143,9 @@ protected:
 
 	/** Gameplay cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+
+	/** Per-frame first-person visual updates */
+	virtual void Tick(float DeltaSeconds) override;
 
 	/** Replication setup */
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -142,6 +184,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoSwitchWeapon();
 
+	/** Handles start slow-walk input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStartSlowWalk();
+
+	/** Handles stop slow-walk input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStopSlowWalk();
+
+	/** Handles reload input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoReload();
+
 public:
 
 	//~Begin IShooterWeaponHolder interface
@@ -173,6 +227,12 @@ public:
 	/** Notifies the owner that the weapon cooldown has expired and it's ready to shoot again */
 	virtual void OnSemiWeaponRefire() override;
 
+	/** Notifies the owner that this weapon started reloading */
+	virtual void OnWeaponReloadStarted(float ReloadDuration) override;
+
+	/** Notifies the owner that this weapon finished reloading */
+	virtual void OnWeaponReloadFinished() override;
+
 	//~End IShooterWeaponHolder interface
 
 protected:
@@ -199,6 +259,21 @@ protected:
 	/** Server-authoritative weapon switch request */
 	UFUNCTION(Server, Reliable)
 	void ServerSwitchWeapon();
+
+	/** Server-authoritative start slow-walk request */
+	UFUNCTION(Server, Reliable)
+	void ServerStartSlowWalk();
+
+	/** Server-authoritative stop slow-walk request */
+	UFUNCTION(Server, Reliable)
+	void ServerStopSlowWalk();
+
+	/** Server-authoritative reload request */
+	UFUNCTION(Server, Reliable)
+	void ServerReload();
+
+	/** Applies or clears the slow-walk movement speed */
+	void ApplySlowWalk(bool bSlowWalk);
 
 	/** Returns true if the character already owns a weapon of the given class */
 	AShooterWeapon* FindWeaponOfType(TSubclassOf<AShooterWeapon> WeaponClass) const;
