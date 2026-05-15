@@ -11,6 +11,7 @@
 #include "Engine/World.h"
 #include "Camera/CameraComponent.h"
 #include "TimerManager.h"
+#include "UObject/ConstructorHelpers.h"
 #include "ShooterGameMode.h"
 #include "Net/UnrealNetwork.h"
 
@@ -21,6 +22,12 @@ AShooterCharacter::AShooterCharacter()
 
 	// configure movement
 	GetCharacterMovement()->RotationRate = FRotator(0.0f, 600.0f, 0.0f);
+
+	static ConstructorHelpers::FClassFinder<AShooterWeapon> StartingWeaponBlueprint(TEXT("/Game/Weapons/BP_Pistol"));
+	if (StartingWeaponBlueprint.Succeeded())
+	{
+		StartingWeaponClass = StartingWeaponBlueprint.Class;
+	}
 }
 
 void AShooterCharacter::BeginPlay()
@@ -33,9 +40,15 @@ void AShooterCharacter::BeginPlay()
 	// update the HUD
 	OnDamaged.Broadcast(1.0f);
 
-	if (HasAuthority() && StartingWeaponClass)
+	TSubclassOf<AShooterWeapon> WeaponClassToSpawn = StartingWeaponClass;
+	if (!WeaponClassToSpawn)
 	{
-		AddWeaponClass(StartingWeaponClass);
+		WeaponClassToSpawn = LoadClass<AShooterWeapon>(nullptr, TEXT("/Game/Weapons/BP_Pistol.BP_Pistol_C"));
+	}
+
+	if (HasAuthority() && WeaponClassToSpawn)
+	{
+		AddWeaponClass(WeaponClassToSpawn);
 	}
 }
 
