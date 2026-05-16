@@ -12,7 +12,6 @@
 #include "Animation/AnimMontage.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "DrawDebugHelpers.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
 
@@ -291,7 +290,6 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	AShooterProjectile* Projectile = GetWorld()->SpawnActor<AShooterProjectile>(ProjectileClass, ProjectileTransform, SpawnParams);
 
 	TriggerMuzzleFlash();
-	DrawShotImpactMarker(TargetLocation, ProjectileTransform);
 
 	// play the firing montage
 	WeaponOwner->PlayFiringMontage(FiringMontage);
@@ -345,33 +343,6 @@ void AShooterWeapon::HideMuzzleFlash()
 		MuzzleFlashLight->SetVisibility(false);
 		MuzzleFlashLight->SetHiddenInGame(true);
 	}
-}
-
-void AShooterWeapon::DrawShotImpactMarker(const FVector& TargetLocation, const FTransform& ProjectileTransform) const
-{
-	if (!bDrawShotImpactMarker || !GetWorld())
-	{
-		return;
-	}
-
-	const FVector Start = ProjectileTransform.GetLocation();
-	const FVector Direction = (TargetLocation - Start).GetSafeNormal();
-	const FVector TraceEnd = TargetLocation + (Direction * 100.0f);
-
-	FHitResult Hit;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(this);
-	QueryParams.AddIgnoredActor(GetOwner());
-	if (PawnOwner)
-	{
-		QueryParams.AddIgnoredActor(PawnOwner);
-	}
-
-	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, TraceEnd, ECC_Visibility, QueryParams);
-	const FVector MarkerLocation = bHit ? Hit.ImpactPoint + (Hit.ImpactNormal * 1.5f) : TargetLocation;
-
-	DrawDebugSphere(GetWorld(), MarkerLocation, ShotImpactMarkerSize, 16, FColor::Red, false, ShotImpactMarkerLifeSpan, 0, 2.0f);
-	DrawDebugPoint(GetWorld(), MarkerLocation, ShotImpactMarkerSize * 2.0f, FColor::Red, false, ShotImpactMarkerLifeSpan, 0);
 }
 
 const TSubclassOf<UAnimInstance>& AShooterWeapon::GetFirstPersonAnimInstanceClass() const

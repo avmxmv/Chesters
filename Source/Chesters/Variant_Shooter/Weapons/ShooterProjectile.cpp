@@ -13,7 +13,6 @@
 #include "Engine/OverlapResult.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
-#include "DrawDebugHelpers.h"
 #include "Materials/MaterialInterface.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
@@ -137,13 +136,6 @@ void AShooterProjectile::SpawnImpactDecal(const FHitResult& Hit) const
 	if (!Hit.GetComponent())
 	{
 		return;
-	}
-
-	if (bDrawDebugImpactMarker && GetWorld())
-	{
-		const FVector MarkerLocation = Hit.ImpactPoint + (Hit.ImpactNormal * 1.5f);
-		DrawDebugSphere(GetWorld(), MarkerLocation, ImpactMarkerSize, 16, FColor::Red, false, ImpactDecalLifeSpan, 0, 2.0f);
-		DrawDebugPoint(GetWorld(), MarkerLocation, ImpactMarkerSize * 2.0f, FColor::Red, false, ImpactDecalLifeSpan, 0);
 	}
 
 	if (!ImpactDecalMaterial)

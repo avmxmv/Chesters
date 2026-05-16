@@ -90,14 +90,6 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Projectile|Impact", meta = (ClampMin = 0, ClampMax = 60, Units = "s"))
 	float ImpactDecalLifeSpan = 20.0f;
 
-	/** Draws a temporary red marker at the impact point for clear bullet hit feedback. */
-	UPROPERTY(EditAnywhere, Category="Projectile|Impact")
-	bool bDrawDebugImpactMarker = true;
-
-	/** Size of the red impact marker. */
-	UPROPERTY(EditAnywhere, Category="Projectile|Impact", meta = (ClampMin = 0, ClampMax = 100, Units = "cm"))
-	float ImpactMarkerSize = 8.0f;
-
 	/** Timer to handle deferred destruction of this projectile */
 	FTimerHandle DestructionTimer;
 

@@ -111,18 +111,6 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Visuals|Muzzle Flash")
 	FLinearColor MuzzleFlashColor = FLinearColor(1.0f, 0.35f, 0.02f);
 
-	/** Draws a temporary red marker where this shot lands. */
-	UPROPERTY(EditAnywhere, Category="Visuals|Impact")
-	bool bDrawShotImpactMarker = true;
-
-	/** Size of the red shot impact marker. */
-	UPROPERTY(EditAnywhere, Category="Visuals|Impact", meta = (ClampMin = 0, ClampMax = 100, Units = "cm"))
-	float ShotImpactMarkerSize = 8.0f;
-
-	/** How long the shot impact marker remains visible. */
-	UPROPERTY(EditAnywhere, Category="Visuals|Impact", meta = (ClampMin = 0, ClampMax = 60, Units = "s"))
-	float ShotImpactMarkerLifeSpan = 20.0f;
-
 	/** If true, this weapon will automatically fire at the refire rate */
 	UPROPERTY(EditAnywhere, Category="Refire")
 	bool bFullAuto = false;
@@ -226,9 +214,6 @@ protected:
 
 	/** Hides the muzzle flash light after its timer expires. */
 	void HideMuzzleFlash();
-
-	/** Draws clear temporary feedback at the hit point for the shot. */
-	void DrawShotImpactMarker(const FVector& TargetLocation, const FTransform& ProjectileTransform) const;
 
 public:
 

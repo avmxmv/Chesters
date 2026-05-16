@@ -118,11 +118,12 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		// Firing
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &AShooterCharacter::DoStartFiring);
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &AShooterCharacter::DoStopFiring);
-
-		// Switch weapon
-		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &AShooterCharacter::DoSwitchWeapon);
 	}
 
+	PlayerInputComponent->BindKey(EKeys::One, IE_Pressed, this, &AShooterCharacter::DoSelectWeaponSlot1);
+	PlayerInputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AShooterCharacter::DoSelectWeaponSlot2);
+	PlayerInputComponent->BindKey(EKeys::Three, IE_Pressed, this, &AShooterCharacter::DoSelectWeaponSlot3);
+	PlayerInputComponent->BindKey(EKeys::Four, IE_Pressed, this, &AShooterCharacter::DoSelectWeaponSlot4);
 	PlayerInputComponent->BindKey(EKeys::LeftShift, IE_Pressed, this, &AShooterCharacter::DoStartSlowWalk);
 	PlayerInputComponent->BindKey(EKeys::LeftShift, IE_Released, this, &AShooterCharacter::DoStopSlowWalk);
 	PlayerInputComponent->BindKey(EKeys::RightShift, IE_Pressed, this, &AShooterCharacter::DoStartSlowWalk);
@@ -262,6 +263,51 @@ void AShooterCharacter::DoSwitchWeapon()
 		CurrentWeapon->ActivateWeapon();
 		RefreshWeaponAttachments();
 	}
+}
+
+void AShooterCharacter::DoSelectWeaponSlot(int32 WeaponIndex)
+{
+	if (!HasAuthority())
+	{
+		ServerSelectWeaponSlot(WeaponIndex);
+		return;
+	}
+
+	if (!OwnedWeapons.IsValidIndex(WeaponIndex) || !CurrentWeapon || IsDead())
+	{
+		return;
+	}
+
+	AShooterWeapon* SelectedWeapon = OwnedWeapons[WeaponIndex];
+	if (!SelectedWeapon || SelectedWeapon == CurrentWeapon)
+	{
+		return;
+	}
+
+	CurrentWeapon->DeactivateWeapon();
+	CurrentWeapon = SelectedWeapon;
+	CurrentWeapon->ActivateWeapon();
+	RefreshWeaponAttachments();
+}
+
+void AShooterCharacter::DoSelectWeaponSlot1()
+{
+	DoSelectWeaponSlot(0);
+}
+
+void AShooterCharacter::DoSelectWeaponSlot2()
+{
+	DoSelectWeaponSlot(1);
+}
+
+void AShooterCharacter::DoSelectWeaponSlot3()
+{
+	DoSelectWeaponSlot(2);
+}
+
+void AShooterCharacter::DoSelectWeaponSlot4()
+{
+	DoSelectWeaponSlot(3);
 }
 
 void AShooterCharacter::DoStartSlowWalk()
@@ -514,6 +560,11 @@ void AShooterCharacter::ServerStopFiring_Implementation()
 void AShooterCharacter::ServerSwitchWeapon_Implementation()
 {
 	DoSwitchWeapon();
+}
+
+void AShooterCharacter::ServerSelectWeaponSlot_Implementation(int32 WeaponIndex)
+{
+	DoSelectWeaponSlot(WeaponIndex);
 }
 
 void AShooterCharacter::ServerStartSlowWalk_Implementation()

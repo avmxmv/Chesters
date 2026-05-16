@@ -184,6 +184,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoSwitchWeapon();
 
+	/** Handles direct weapon slot input. Slot indexes are zero-based. */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoSelectWeaponSlot(int32 WeaponIndex);
+
+	/** Handles weapon slot 1 input */
+	void DoSelectWeaponSlot1();
+
+	/** Handles weapon slot 2 input */
+	void DoSelectWeaponSlot2();
+
+	/** Handles weapon slot 3 input */
+	void DoSelectWeaponSlot3();
+
+	/** Handles weapon slot 4 input */
+	void DoSelectWeaponSlot4();
+
 	/** Handles start slow-walk input */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoStartSlowWalk();
@@ -259,6 +275,10 @@ protected:
 	/** Server-authoritative weapon switch request */
 	UFUNCTION(Server, Reliable)
 	void ServerSwitchWeapon();
+
+	/** Server-authoritative direct weapon slot request */
+	UFUNCTION(Server, Reliable)
+	void ServerSelectWeaponSlot(int32 WeaponIndex);
 
 	/** Server-authoritative start slow-walk request */
 	UFUNCTION(Server, Reliable)
