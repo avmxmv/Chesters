@@ -39,9 +39,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="NPC Spawner", meta = (ClampMin = 0, ClampMax = 100))
 	int32 SpawnCount = 1;
 
+	/** Initial spawn count restored at the start of each round */
+	int32 InitialSpawnCount = 0;
+
 	/** Time to wait before spawning the next NPC after the current one dies */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="NPC Spawner", meta = (ClampMin = 0, ClampMax = 10))
 	float RespawnDelay = 5.0f;
+
+	/** NPC currently owned by this spawner */
+	TObjectPtr<AShooterNPC> SpawnedNPC;
 
 	/** Timer to spawn NPCs after a delay */
 	FTimerHandle SpawnTimer;
@@ -58,6 +64,12 @@ public:
 
 	/** Cleanup */
 	virtual void EndPlay(EEndPlayReason::Type EndPlayReason) override;
+
+	/** Restarts this spawner for a fresh round. */
+	void ResetForRound(float SpawnDelay = 0.0f);
+
+	/** Stops pending spawns and removes the current NPC. */
+	void StopSpawning();
 
 protected:
 

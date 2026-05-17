@@ -175,10 +175,10 @@ void AShooterNPC::Die()
 	// call the delegate
 	OnPawnDeath.Broadcast();
 
-	// increment the team score
+	// notify the game mode so it can resolve the round state
 	if (AShooterGameMode* GM = Cast<AShooterGameMode>(GetWorld()->GetAuthGameMode()))
 	{
-		GM->IncrementTeamScore(TeamByte);
+		GM->NotifyTeamMemberDied(TeamByte);
 	}
 
 	// disable capsule collision

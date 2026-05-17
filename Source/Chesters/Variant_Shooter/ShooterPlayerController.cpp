@@ -9,9 +9,24 @@
 #include "GameFramework/PlayerStart.h"
 #include "ShooterCharacter.h"
 #include "ShooterBulletCounterUI.h"
+#include "ShooterGameMode.h"
+#include "ShooterMainMenuUI.h"
+#include "ShooterProjectile.h"
 #include "ShooterWeapon.h"
+#include "ShooterWeaponInfoUI.h"
 #include "Chesters.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScrollBox.h"
+#include "Widgets/Layout/SSeparator.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/SOverlay.h"
+#include "Widgets/Text/STextBlock.h"
+#include "Widgets/Input/SButton.h"
+#include "Styling/CoreStyle.h"
 #include "Net/UnrealNetwork.h"
 
 void AShooterPlayerController::BeginPlay()
@@ -58,6 +73,7 @@ void AShooterPlayerController::BeginPlay()
 		}
 
 		HandleMoneyChanged();
+		SetGameInputMode();
 	}
 }
 
@@ -110,6 +126,8 @@ void AShooterPlayerController::OnPossess(APawn* InPawn)
 		// force update the life bar
 		ShooterCharacter->OnDamaged.Broadcast(1.0f);
 	}
+
+	SetGameInputMode();
 }
 
 void AShooterPlayerController::OnPawnDestroyed(AActor* DestroyedActor)
@@ -230,6 +248,370 @@ bool AShooterPlayerController::ShouldUseTouchControls() const
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
 }
 
+void AShooterPlayerController::SetMenuInputMode(TSharedPtr<SWidget> FocusWidget)
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	FInputModeUIOnly InputMode;
+	InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+	if (FocusWidget.IsValid())
+	{
+		InputMode.SetWidgetToFocus(FocusWidget);
+	}
+
+	SetInputMode(InputMode);
+	SetShowMouseCursor(true);
+}
+
+void AShooterPlayerController::SetGameInputMode()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	SetInputMode(FInputModeGameOnly());
+	SetShowMouseCursor(false);
+}
+
+void AShooterPlayerController::HideMenuOverlays()
+{
+	if (MainMenuWidget)
+	{
+		MainMenuWidget->RemoveFromParent();
+		MainMenuWidget = nullptr;
+	}
+
+	if (WeaponInfoWidget)
+	{
+		WeaponInfoWidget->RemoveFromParent();
+		WeaponInfoWidget = nullptr;
+	}
+
+	if (GEngine && GEngine->GameViewport)
+	{
+		if (MainMenuOverlay.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(MainMenuOverlay.ToSharedRef());
+			MainMenuOverlay.Reset();
+		}
+
+		if (WeaponInfoOverlay.IsValid())
+		{
+			GEngine->GameViewport->RemoveViewportWidgetContent(WeaponInfoOverlay.ToSharedRef());
+			WeaponInfoOverlay.Reset();
+		}
+	}
+}
+
+TSharedRef<SWidget> AShooterPlayerController::BuildMainMenuOverlay()
+{
+	return SNew(SOverlay)
+		+ SOverlay::Slot()
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor(FLinearColor(0.02f, 0.02f, 0.025f, 0.94f))
+		]
+		+ SOverlay::Slot()
+		.HAlign(HAlign_Center)
+		.VAlign(VAlign_Center)
+		[
+			SNew(SVerticalBox)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 0.0f, 0.0f, 36.0f)
+			.HAlign(HAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(TEXT("Chesters")))
+				.ColorAndOpacity(FSlateColor(FLinearColor::White))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 52))
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 8.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(360.0f)
+				.HeightOverride(64.0f)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center)
+					.VAlign(VAlign_Center)
+					.OnClicked(FOnClicked::CreateUObject(this, &AShooterPlayerController::HandleSlateStartGameClicked))
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(TEXT("Начать игру")))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 28))
+					]
+				]
+			]
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0.0f, 8.0f)
+			[
+				SNew(SBox)
+				.WidthOverride(360.0f)
+				.HeightOverride(64.0f)
+				[
+					SNew(SButton)
+					.HAlign(HAlign_Center)
+					.VAlign(VAlign_Center)
+					.OnClicked(FOnClicked::CreateUObject(this, &AShooterPlayerController::HandleSlateWeaponsClicked))
+					[
+						SNew(STextBlock)
+						.Text(FText::FromString(TEXT("Виды оружия")))
+						.Font(FCoreStyle::GetDefaultFontStyle("Regular", 28))
+					]
+				]
+			]
+		];
+}
+
+TSharedRef<SWidget> AShooterPlayerController::BuildWeaponInfoOverlay()
+{
+	TArray<FShooterWeaponInfo> WeaponInfos;
+	GetWeaponInfoList(WeaponInfos);
+
+	TSharedRef<SVerticalBox> WeaponList = SNew(SVerticalBox);
+	for (const FShooterWeaponInfo& WeaponInfo : WeaponInfos)
+	{
+		WeaponList->AddSlot()
+		.AutoHeight()
+		.Padding(0.0f, 8.0f)
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor(FLinearColor(0.08f, 0.08f, 0.09f, 0.95f))
+			.Padding(18.0f)
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				[
+					SNew(STextBlock)
+					.Text(WeaponInfo.DisplayName)
+					.ColorAndOpacity(FSlateColor(FLinearColor::White))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 28))
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(0.0f, 6.0f, 0.0f, 0.0f)
+				[
+					SNew(STextBlock)
+					.Text(FText::Format(FText::FromString(TEXT("Урон: {0}    Скорострельность: {1} выстр./сек    Перезарядка: {2} сек")),
+						FText::AsNumber(FMath::RoundToInt(WeaponInfo.Damage)),
+						FText::AsNumber(WeaponInfo.FireRate),
+						FText::AsNumber(WeaponInfo.ReloadDuration)))
+					.ColorAndOpacity(FSlateColor(FLinearColor::White))
+					.Font(FCoreStyle::GetDefaultFontStyle("Regular", 20))
+				]
+			]
+		];
+	}
+
+	if (WeaponInfos.IsEmpty())
+	{
+		WeaponList->AddSlot()
+		.AutoHeight()
+		.Padding(0.0f, 20.0f)
+		.HAlign(HAlign_Center)
+		[
+			SNew(STextBlock)
+			.Text(FText::FromString(TEXT("Список оружия пока пуст")))
+			.ColorAndOpacity(FSlateColor(FLinearColor::White))
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 24))
+		];
+	}
+
+	return SNew(SOverlay)
+		+ SOverlay::Slot()
+		[
+			SNew(SBorder)
+			.BorderBackgroundColor(FLinearColor(0.02f, 0.02f, 0.025f, 0.96f))
+		]
+		+ SOverlay::Slot()
+		.HAlign(HAlign_Center)
+		.VAlign(VAlign_Center)
+		[
+			SNew(SBox)
+			.WidthOverride(980.0f)
+			.HeightOverride(720.0f)
+			[
+				SNew(SVerticalBox)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.HAlign(HAlign_Center)
+				.Padding(0.0f, 0.0f, 0.0f, 20.0f)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(TEXT("Виды оружия")))
+					.ColorAndOpacity(FSlateColor(FLinearColor::White))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 42))
+				]
+				+ SVerticalBox::Slot()
+				.FillHeight(1.0f)
+				[
+					SNew(SScrollBox)
+					+ SScrollBox::Slot()
+					[
+						WeaponList
+					]
+				]
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.HAlign(HAlign_Center)
+				.Padding(0.0f, 20.0f, 0.0f, 0.0f)
+				[
+					SNew(SBox)
+					.WidthOverride(260.0f)
+					.HeightOverride(58.0f)
+					[
+						SNew(SButton)
+						.HAlign(HAlign_Center)
+						.VAlign(VAlign_Center)
+						.OnClicked(FOnClicked::CreateUObject(this, &AShooterPlayerController::HandleSlateBackClicked))
+						[
+							SNew(STextBlock)
+							.Text(FText::FromString(TEXT("Назад")))
+							.Font(FCoreStyle::GetDefaultFontStyle("Regular", 26))
+						]
+					]
+				]
+			]
+		];
+}
+
+FReply AShooterPlayerController::HandleSlateStartGameClicked()
+{
+	StartGameFromMainMenu();
+	return FReply::Handled();
+}
+
+FReply AShooterPlayerController::HandleSlateWeaponsClicked()
+{
+	ShowWeaponInfoMenu();
+	return FReply::Handled();
+}
+
+FReply AShooterPlayerController::HandleSlateBackClicked()
+{
+	ShowMainMenu();
+	return FReply::Handled();
+}
+
+void AShooterPlayerController::ShowMainMenu()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	HideMenuOverlays();
+
+	if (GEngine && GEngine->GameViewport)
+	{
+		MainMenuOverlay = BuildMainMenuOverlay();
+		GEngine->GameViewport->AddViewportWidgetContent(MainMenuOverlay.ToSharedRef(), 1000);
+		SetMenuInputMode(MainMenuOverlay);
+	}
+	else
+	{
+		SetGameInputMode();
+		UE_LOG(LogChesters, Error, TEXT("Could not access the game viewport to show the main menu."));
+	}
+}
+
+void AShooterPlayerController::ShowWeaponInfoMenu()
+{
+	if (!IsLocalPlayerController())
+	{
+		return;
+	}
+
+	HideMenuOverlays();
+
+	if (GEngine && GEngine->GameViewport)
+	{
+		WeaponInfoOverlay = BuildWeaponInfoOverlay();
+		GEngine->GameViewport->AddViewportWidgetContent(WeaponInfoOverlay.ToSharedRef(), 1000);
+		SetMenuInputMode(WeaponInfoOverlay);
+	}
+	else
+	{
+		SetGameInputMode();
+		UE_LOG(LogChesters, Error, TEXT("Could not access the game viewport to show weapon info."));
+	}
+}
+
+void AShooterPlayerController::StartGameFromMainMenu()
+{
+	HideMenuOverlays();
+	SetGameInputMode();
+
+	if (HasAuthority())
+	{
+		ServerStartGameFromMainMenu_Implementation();
+	}
+	else
+	{
+		ServerStartGameFromMainMenu();
+	}
+}
+
+void AShooterPlayerController::GetWeaponInfoList(TArray<FShooterWeaponInfo>& OutWeaponInfos) const
+{
+	OutWeaponInfos.Reset();
+
+	TArray<FShooterWeaponDisplayOption> DisplayOptions = WeaponInfoOptions;
+	if (DisplayOptions.IsEmpty())
+	{
+		for (const FShooterWeaponPurchaseOption& BuyOption : BuyMenuOptions)
+		{
+			FShooterWeaponDisplayOption DisplayOption;
+			DisplayOption.WeaponClass = BuyOption.WeaponClass;
+			DisplayOptions.Add(DisplayOption);
+		}
+	}
+
+	for (const FShooterWeaponDisplayOption& DisplayOption : DisplayOptions)
+	{
+		if (!DisplayOption.WeaponClass)
+		{
+			continue;
+		}
+
+		const AShooterWeapon* WeaponDefaults = DisplayOption.WeaponClass->GetDefaultObject<AShooterWeapon>();
+		if (!WeaponDefaults)
+		{
+			continue;
+		}
+
+		FShooterWeaponInfo WeaponInfo;
+		WeaponInfo.DisplayName = DisplayOption.DisplayName.IsEmpty()
+			? FText::FromString(DisplayOption.WeaponClass->GetName().Replace(TEXT("_C"), TEXT("")))
+			: DisplayOption.DisplayName;
+		WeaponInfo.WeaponClass = DisplayOption.WeaponClass;
+		WeaponInfo.Icon = DisplayOption.Icon;
+		WeaponInfo.ReloadDuration = WeaponDefaults->GetReloadDuration();
+		WeaponInfo.FireRate = WeaponDefaults->GetRefireRate() > 0.0f ? 1.0f / WeaponDefaults->GetRefireRate() : 0.0f;
+
+		if (TSubclassOf<AShooterProjectile> ProjectileClass = WeaponDefaults->GetProjectileClass())
+		{
+			if (const AShooterProjectile* ProjectileDefaults = ProjectileClass->GetDefaultObject<AShooterProjectile>())
+			{
+				WeaponInfo.Damage = ProjectileDefaults->GetHitDamage();
+				WeaponInfo.bExplosive = ProjectileDefaults->ExplodesOnHit();
+				WeaponInfo.ExplosionRadius = ProjectileDefaults->GetExplosionRadius();
+			}
+		}
+
+		OutWeaponInfos.Add(WeaponInfo);
+	}
+}
+
 void AShooterPlayerController::BuyWeapon(int32 OptionIndex)
 {
 	if (HasAuthority())
@@ -265,6 +647,14 @@ void AShooterPlayerController::ServerBuyWeapon_Implementation(int32 OptionIndex)
 	HandleMoneyChanged();
 
 	ShooterCharacter->AddWeaponClass(PurchaseOption.WeaponClass);
+}
+
+void AShooterPlayerController::ServerStartGameFromMainMenu_Implementation()
+{
+	if (AShooterGameMode* ShooterGameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AShooterGameMode>() : nullptr)
+	{
+		ShooterGameMode->StartGameFromMenu();
+	}
 }
 
 void AShooterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

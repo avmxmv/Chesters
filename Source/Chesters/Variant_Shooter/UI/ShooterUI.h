@@ -19,4 +19,12 @@ public:
 	/** Allows Blueprint to update score sub-widgets */
 	UFUNCTION(BlueprintImplementableEvent, Category="Shooter", meta = (DisplayName = "Update Score"))
 	void BP_UpdateScore(uint8 TeamByte, int32 Score);
+
+	/** Allows Blueprint to show round start state. */
+	UFUNCTION(BlueprintImplementableEvent, Category="Shooter", meta = (DisplayName = "Round Started"))
+	void BP_RoundStarted(int32 RoundNumber, float RoundDuration);
+
+	/** Allows Blueprint to show round end state. */
+	UFUNCTION(BlueprintImplementableEvent, Category="Shooter", meta = (DisplayName = "Round Ended"))
+	void BP_RoundEnded(uint8 WinningTeam, bool bHasWinner);
 };

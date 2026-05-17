@@ -160,4 +160,10 @@ public:
 
 	/** Signals this character to stop shooting */
 	void StopShooting();
+
+	/** Returns true if this NPC has died. */
+	bool IsDead() const { return bIsDead; }
+
+	/** Returns this NPC's team ID. */
+	uint8 GetTeamByte() const { return TeamByte; }
 };
