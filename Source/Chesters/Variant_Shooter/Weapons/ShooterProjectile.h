@@ -98,6 +98,15 @@ public:
 	/** Constructor */
 	AShooterProjectile();
 
+	/** Returns the damage this projectile applies on hit. */
+	float GetHitDamage() const { return HitDamage; }
+
+	/** Returns true if this projectile explodes on hit. */
+	bool ExplodesOnHit() const { return bExplodeOnHit; }
+
+	/** Returns the radius used for explosion damage checks. */
+	float GetExplosionRadius() const { return ExplosionRadius; }
+
 protected:
 	
 	/** Gameplay initialization */

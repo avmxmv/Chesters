@@ -108,6 +108,9 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_CurrentWeapon)
 	TObjectPtr<AShooterWeapon> CurrentWeapon;
 
+	/** First-person weapon AnimBP waiting for a valid controller before it can tick safely. */
+	TSubclassOf<UAnimInstance> PendingFirstPersonAnimInstanceClass;
+
 	/** Optional weapon automatically granted when this character spawns */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapons", meta=(AllowPrivateAccess="true"))
 	TSubclassOf<AShooterWeapon> StartingWeaponClass;
@@ -146,6 +149,12 @@ protected:
 
 	/** Per-frame first-person visual updates */
 	virtual void Tick(float DeltaSeconds) override;
+
+	/** Called when the character is possessed on the server. */
+	virtual void PossessedBy(AController* NewController) override;
+
+	/** Called when the controller changes on clients. */
+	virtual void OnRep_Controller() override;
 
 	/** Replication setup */
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -264,6 +273,12 @@ protected:
 	/** Attaches owned weapons and shows only the currently equipped one */
 	void RefreshWeaponAttachments();
 
+	/** Defers setting the first-person AnimBP until the controller is valid. */
+	void SetFirstPersonWeaponAnimClass(TSubclassOf<UAnimInstance> AnimClass);
+
+	/** Applies the deferred first-person AnimBP if it is safe to tick. */
+	void TryApplyPendingFirstPersonAnimClass();
+
 	/** Server-authoritative start firing request */
 	UFUNCTION(Server, Reliable)
 	void ServerStartFiring();
@@ -310,8 +325,17 @@ protected:
 
 public:
 
+	/** Stops combat actions while keeping the weapon visible. */
+	void StopCombatActions();
+
+	/** Stops first-person animation safely before death or actor destruction. */
+	void PrepareForRoundReset();
+
 	/** Returns true if the character is dead */
 	bool IsDead() const;
+
+	/** Returns this character's team ID. */
+	uint8 GetTeamByte() const { return TeamByte; }
 
 	/** Returns true if this character owns a weapon of the given class */
 	UFUNCTION(BlueprintPure, Category="Weapons")

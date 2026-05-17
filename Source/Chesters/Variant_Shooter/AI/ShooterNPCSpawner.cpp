@@ -8,6 +8,7 @@
 #include "Components/ArrowComponent.h"
 #include "TimerManager.h"
 #include "ShooterNPC.h"
+#include "ShooterGameMode.h"
 
 // Sets default values
 AShooterNPCSpawner::AShooterNPCSpawner()
@@ -33,6 +34,13 @@ void AShooterNPCSpawner::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	InitialSpawnCount = SpawnCount;
+
+	if (Cast<AShooterGameMode>(GetWorld()->GetAuthGameMode()))
+	{
+		return;
+	}
+
 	// ensure we don't spawn NPCs if our initial spawn count is zero
 	if (SpawnCount > 0)
 	{
@@ -49,8 +57,50 @@ void AShooterNPCSpawner::EndPlay(EEndPlayReason::Type EndPlayReason)
 	GetWorld()->GetTimerManager().ClearTimer(SpawnTimer);
 }
 
+void AShooterNPCSpawner::ResetForRound(float SpawnDelay)
+{
+	if (InitialSpawnCount <= 0)
+	{
+		InitialSpawnCount = SpawnCount;
+	}
+
+	StopSpawning();
+
+	SpawnCount = InitialSpawnCount;
+	if (SpawnCount <= 0)
+	{
+		return;
+	}
+
+	if (SpawnDelay > 0.0f)
+	{
+		GetWorld()->GetTimerManager().SetTimer(SpawnTimer, this, &AShooterNPCSpawner::SpawnNPC, SpawnDelay, false);
+	}
+	else
+	{
+		SpawnNPC();
+	}
+}
+
+void AShooterNPCSpawner::StopSpawning()
+{
+	GetWorld()->GetTimerManager().ClearTimer(SpawnTimer);
+
+	if (IsValid(SpawnedNPC))
+	{
+		SpawnedNPC->Destroy();
+	}
+
+	SpawnedNPC = nullptr;
+}
+
 void AShooterNPCSpawner::SpawnNPC()
 {
+	if (SpawnCount <= 0)
+	{
+		return;
+	}
+
 	// ensure the NPC class is valid
 	if (IsValid(NPCClass))
 	{
@@ -58,7 +108,7 @@ void AShooterNPCSpawner::SpawnNPC()
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-		AShooterNPC* SpawnedNPC = GetWorld()->SpawnActor<AShooterNPC>(NPCClass, SpawnCapsule->GetComponentTransform(), SpawnParams);
+		SpawnedNPC = GetWorld()->SpawnActor<AShooterNPC>(NPCClass, SpawnCapsule->GetComponentTransform(), SpawnParams);
 
 		// was the NPC successfully created?
 		if (SpawnedNPC)
@@ -71,6 +121,8 @@ void AShooterNPCSpawner::SpawnNPC()
 
 void AShooterNPCSpawner::OnNPCDied()
 {
+	SpawnedNPC = nullptr;
+
 	// decrease the spawn counter
 	--SpawnCount;
 

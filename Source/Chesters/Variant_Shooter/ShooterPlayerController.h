@@ -4,13 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Input/Reply.h"
+#include "UI/ShooterWeaponInfoTypes.h"
 #include "ShooterPlayerController.generated.h"
 
 class UInputMappingContext;
 class AShooterCharacter;
 class AShooterWeapon;
 class UShooterBulletCounterUI;
+class UShooterMainMenuUI;
+class UShooterWeaponInfoUI;
 class FLifetimeProperty;
+class SWidget;
 
 USTRUCT(BlueprintType)
 struct FShooterWeaponPurchaseOption
@@ -76,6 +81,18 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Shooter|UI")
 	TSubclassOf<UShooterBulletCounterUI> BulletCounterUIClass;
 
+	/** Main menu widget to spawn when the match opens. */
+	UPROPERTY(EditAnywhere, Category="Shooter|UI|Main Menu")
+	TSubclassOf<UShooterMainMenuUI> MainMenuWidgetClass;
+
+	/** Weapon information widget shown from the main menu. */
+	UPROPERTY(EditAnywhere, Category="Shooter|UI|Main Menu")
+	TSubclassOf<UShooterWeaponInfoUI> WeaponInfoWidgetClass;
+
+	/** Weapons shown in the weapon information screen. Falls back to the buy menu weapons. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Shooter|UI|Main Menu", meta=(AllowPrivateAccess="true"))
+	TArray<FShooterWeaponDisplayOption> WeaponInfoOptions;
+
 	/** Tag to grant the possessed pawn to flag it as the player */
 	UPROPERTY(EditAnywhere, Category="Shooter|Player")
 	FName PlayerPawnTag = FName("Player");
@@ -83,6 +100,20 @@ protected:
 	/** Pointer to the bullet counter UI widget */
 	UPROPERTY()
 	TObjectPtr<UShooterBulletCounterUI> BulletCounterUI;
+
+	/** Pointer to the active main menu widget. */
+	UPROPERTY()
+	TObjectPtr<UShooterMainMenuUI> MainMenuWidget;
+
+	/** Pointer to the active weapon info widget. */
+	UPROPERTY()
+	TObjectPtr<UShooterWeaponInfoUI> WeaponInfoWidget;
+
+	/** Slate fallback menu that is drawn directly in the viewport. */
+	TSharedPtr<SWidget> MainMenuOverlay;
+
+	/** Slate fallback weapon info screen drawn directly in the viewport. */
+	TSharedPtr<SWidget> WeaponInfoOverlay;
 
 protected:
 
@@ -142,6 +173,30 @@ protected:
 	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
 
+	/** Applies menu input settings to the local player. */
+	void SetMenuInputMode(TSharedPtr<SWidget> FocusWidget);
+
+	/** Applies gameplay input settings to the local player. */
+	void SetGameInputMode();
+
+	/** Removes all menu overlays from the viewport. */
+	void HideMenuOverlays();
+
+	/** Builds the main menu as a direct Slate viewport overlay. */
+	TSharedRef<SWidget> BuildMainMenuOverlay();
+
+	/** Builds the weapon information screen as a direct Slate viewport overlay. */
+	TSharedRef<SWidget> BuildWeaponInfoOverlay();
+
+	/** Slate handler for the start game button. */
+	FReply HandleSlateStartGameClicked();
+
+	/** Slate handler for the weapon information button. */
+	FReply HandleSlateWeaponsClicked();
+
+	/** Slate handler for returning to the main menu. */
+	FReply HandleSlateBackClicked();
+
 public:
 
 	/** Attempts to buy the weapon at the configured buy menu index */
@@ -152,6 +207,22 @@ public:
 	UFUNCTION(BlueprintPure, Category="Shooter|Buy")
 	int32 GetCurrentMoney() const { return CurrentMoney; }
 
+	/** Shows the launch main menu. */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void ShowMainMenu();
+
+	/** Shows weapon stats from the main menu. */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void ShowWeaponInfoMenu();
+
+	/** Starts gameplay from the launch main menu. */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void StartGameFromMainMenu();
+
+	/** Builds weapon information for the UI. */
+	UFUNCTION(BlueprintCallable, Category="Shooter|UI")
+	void GetWeaponInfoList(TArray<FShooterWeaponInfo>& OutWeaponInfos) const;
+
 	/** Allows Blueprint UI to refresh money text */
 	UFUNCTION(BlueprintImplementableEvent, Category="Shooter|Buy", meta=(DisplayName="On Money Changed"))
 	void BP_OnMoneyChanged(int32 NewMoney);
@@ -161,4 +232,8 @@ protected:
 	/** Server-authoritative buy request */
 	UFUNCTION(Server, Reliable)
 	void ServerBuyWeapon(int32 OptionIndex);
+
+	/** Server-authoritative request to start the first round from the menu. */
+	UFUNCTION(Server, Reliable)
+	void ServerStartGameFromMainMenu();
 };

@@ -234,6 +234,12 @@ public:
 	/** Returns the magazine size */
 	int32 GetMagazineSize() const { return MagazineSize; };
 
+	/** Returns the projectile class fired by this weapon. */
+	TSubclassOf<AShooterProjectile> GetProjectileClass() const { return ProjectileClass; }
+
+	/** Returns the delay between shots. */
+	float GetRefireRate() const { return RefireRate; }
+
 	/** Returns the current bullet count */
 	int32 GetBulletCount() const { return CurrentBullets; }
 

@@ -70,6 +70,8 @@ void AShooterCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	TryApplyPendingFirstPersonAnimClass();
+
 	if (!bEnableRunHandBob || !GetFirstPersonMesh())
 	{
 		return;
@@ -97,6 +99,20 @@ void AShooterCharacter::Tick(float DeltaSeconds)
 		RunHandBobRotationAmplitude.Roll * BobSin);
 
 	GetFirstPersonMesh()->SetRelativeLocationAndRotation(FirstPersonMeshBaseLocation + BobLocation, FirstPersonMeshBaseRotation + BobRotation);
+}
+
+void AShooterCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	TryApplyPendingFirstPersonAnimClass();
+}
+
+void AShooterCharacter::OnRep_Controller()
+{
+	Super::OnRep_Controller();
+
+	TryApplyPendingFirstPersonAnimClass();
 }
 
 void AShooterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -477,14 +493,14 @@ void AShooterCharacter::OnWeaponActivated(AShooterWeapon* Weapon)
 	// set the character mesh AnimInstances
 	if (Weapon->GetFirstPersonAnimInstanceClass())
 	{
-		GetFirstPersonMesh()->SetAnimInstanceClass(Weapon->GetFirstPersonAnimInstanceClass());
+		SetFirstPersonWeaponAnimClass(Weapon->GetFirstPersonAnimInstanceClass());
 	}
 	else
 	{
 		static TSubclassOf<UAnimInstance> DefaultPistolAnimClass = LoadClass<UAnimInstance>(nullptr, TEXT("/Game/Variant_Shooter/Anims/ABP_FP_Pistol.ABP_FP_Pistol_C"));
 		if (DefaultPistolAnimClass)
 		{
-			GetFirstPersonMesh()->SetAnimInstanceClass(DefaultPistolAnimClass);
+			SetFirstPersonWeaponAnimClass(DefaultPistolAnimClass);
 		}
 	}
 
@@ -545,6 +561,37 @@ void AShooterCharacter::RefreshWeaponAttachments()
 		AttachWeaponMeshes(Weapon);
 		Weapon->SetActorHiddenInGame(Weapon != CurrentWeapon);
 	}
+}
+
+void AShooterCharacter::SetFirstPersonWeaponAnimClass(TSubclassOf<UAnimInstance> AnimClass)
+{
+	PendingFirstPersonAnimInstanceClass = AnimClass;
+	TryApplyPendingFirstPersonAnimClass();
+}
+
+void AShooterCharacter::TryApplyPendingFirstPersonAnimClass()
+{
+	USkeletalMeshComponent* FirstPersonMeshComponent = GetFirstPersonMesh();
+	if (!FirstPersonMeshComponent || !PendingFirstPersonAnimInstanceClass)
+	{
+		return;
+	}
+
+	if (!GetController() || IsDead())
+	{
+		FirstPersonMeshComponent->SetComponentTickEnabled(false);
+		FirstPersonMeshComponent->SetAnimInstanceClass(nullptr);
+		return;
+	}
+
+	if (FirstPersonMeshComponent->GetAnimClass() == PendingFirstPersonAnimInstanceClass)
+	{
+		FirstPersonMeshComponent->SetComponentTickEnabled(true);
+		return;
+	}
+
+	FirstPersonMeshComponent->SetComponentTickEnabled(true);
+	FirstPersonMeshComponent->SetAnimInstanceClass(PendingFirstPersonAnimInstanceClass);
 }
 
 void AShooterCharacter::ServerStartFiring_Implementation()
@@ -618,16 +665,12 @@ AShooterWeapon* AShooterCharacter::FindWeaponOfType(TSubclassOf<AShooterWeapon> 
 
 void AShooterCharacter::Die()
 {
-	// deactivate the weapon
-	if (IsValid(CurrentWeapon))
-	{
-		CurrentWeapon->DeactivateWeapon();
-	}
+	PrepareForRoundReset();
 
-	// increment the team score
+	// notify the game mode so it can resolve the round state
 	if (AShooterGameMode* GM = Cast<AShooterGameMode>(GetWorld()->GetAuthGameMode()))
 	{
-		GM->IncrementTeamScore(TeamByte);
+		GM->NotifyTeamMemberDied(TeamByte);
 	}
 
 	// grant the death tag to the character
@@ -651,8 +694,33 @@ void AShooterCharacter::Die()
 
 void AShooterCharacter::OnRespawn()
 {
+	PrepareForRoundReset();
+
 	// destroy the character to force the PC to respawn
 	Destroy();
+}
+
+void AShooterCharacter::PrepareForRoundReset()
+{
+	StopCombatActions();
+
+	if (USkeletalMeshComponent* FirstPersonMeshComponent = GetFirstPersonMesh())
+	{
+		FirstPersonMeshComponent->SetComponentTickEnabled(false);
+		FirstPersonMeshComponent->SetHiddenInGame(true, true);
+		FirstPersonMeshComponent->SetVisibility(false, true);
+		FirstPersonMeshComponent->SetAnimInstanceClass(nullptr);
+	}
+
+	PendingFirstPersonAnimInstanceClass = nullptr;
+}
+
+void AShooterCharacter::StopCombatActions()
+{
+	if (IsValid(CurrentWeapon))
+	{
+		CurrentWeapon->StopFiring();
+	}
 }
 
 bool AShooterCharacter::IsDead() const
